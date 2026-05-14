@@ -226,14 +226,17 @@ class AsyncServer(Server):
             print(f"not aggregating {self.round_id}")
 
     def single_round(self):
+        if self.round_id >= 100:
+            logger.info("Max rounds reached (100). Exiting.")
+            # wandb.finish()
+            exit()
         self.round_id += 1
         self.aggregate_models()
         self.round_ongoing = True
-        if self.round_id >= 100:
-            # wandb.finish()
-            exit()
         logger.info(f"Round {self.round_id} started")
+        logger.info("Calling start_round")
         parameters = self.start_round()
+        logger.info("start_round returned")
 
         if parameters is None:
             print("Error")

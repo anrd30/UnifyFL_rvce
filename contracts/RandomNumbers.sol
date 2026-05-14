@@ -13,6 +13,9 @@ contract RandomNumbers {
      */
     function randomArray(address[] memory arr) public view returns (address[] memory) {
         uint a = arr.length;
+        if (a == 0) {
+            return new address[](0);
+        }
         uint len = (arr.length / 2) + 1;
         address[] memory result = new address[](len);
         bool[] memory used = new bool[](a);
@@ -22,7 +25,7 @@ contract RandomNumbers {
             address interim = arr[randNumber];
             if (used[randNumber]) {
                 uint j = 0;
-                while (!used[randNumber]) {
+                while (used[randNumber]) {
                     randNumber = (uint(keccak256(abi.encodePacked(block.timestamp, arr[i], j))) % a);
                     j += 1;
                 }

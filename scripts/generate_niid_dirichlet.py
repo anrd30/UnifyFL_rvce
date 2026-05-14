@@ -141,6 +141,31 @@ def save_client_data(output_dir, mode, client_id, x_data, y_data):
     print(f"Saved {mode} data for client {client_id} -> {client_dir} (HF format)")
 
 
+def save_shared_test(output_dir, x_data, y_data):
+    """Save a shared test set to OUTPUT/test in Hugging Face format."""
+    from datasets import Dataset, Features, Array3D, ClassLabel
+
+    test_dir = os.path.join(output_dir, "test")
+    os.makedirs(test_dir, exist_ok=True)
+
+    x_array = np.array(x_data, dtype=np.float32)
+    y_array = np.array(y_data, dtype=np.int64)
+
+    dataset_dict = {
+        "image": x_array,
+        "label": y_array,
+    }
+
+    features = Features({
+        "image": Array3D(shape=(3, 32, 32), dtype="float32"),
+        "label": ClassLabel(num_classes=10),
+    })
+
+    dataset = Dataset.from_dict(dataset_dict, features=features)
+    dataset.save_to_disk(test_dir)
+    print(f"Saved shared test set -> {test_dir} (HF format)")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_user", type=int, default=12, help="number of local clients")
@@ -151,6 +176,13 @@ def main():
     parser.add_argument("--unknown_test", type=int, default=0, help="Allow unseen test labels per user")
     parser.add_argument("--dataset", type=str, default="data/cifar10", help="source dataset")
     parser.add_argument("--output", type=str, default="data/cifar10_split", help="output folder")
+    parser.add_argument(
+        "--shared_test",
+        type=int,
+        default=1,
+        help="Write a shared test set to OUTPUT/test (1=yes, 0=no)",
+    )
+    parser.add_argument("--hf", action="store_true", help="Save datasets in Hugging Face format")
     args = parser.parse_args()
 
     print(f"Preparing CIFAR10 for {args.n_user} clients. Output -> {args.output}")
@@ -171,6 +203,12 @@ def main():
     # Save test data for each client
     for u in range(args.n_user):
         save_client_data(args.output, "test", u, test_X[u], test_y[u])
+
+    # Save shared test data for scorers/loaders
+    if args.shared_test == 1:
+        combined_test_x = [x for user_x in test_X for x in user_x]
+        combined_test_y = [y for user_y in test_y for y in user_y]
+        save_shared_test(args.output, combined_test_x, combined_test_y)
 
     print("✅ Finished preparing client datasets.")
 

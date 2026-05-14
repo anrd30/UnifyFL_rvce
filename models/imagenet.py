@@ -142,8 +142,10 @@ class ImageNetModel(nn.Module):
     def get_optimizer(self):
         return torch.optim.SGD(self.parameters(), lr=0.01, momentum=0.9)
 
-    def train_model(self, trainloader, epochs, optimizer):
+    def train_model(self, trainloader, epochs, optimizer=None):
         criterion = nn.CrossEntropyLoss()
+        if optimizer is None:
+            optimizer = self.get_optimizer()
         self.train()
         for _ in range(epochs):
             for batch in tqdm(trainloader):

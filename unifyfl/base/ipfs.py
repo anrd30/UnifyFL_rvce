@@ -12,13 +12,30 @@ import async_timeout
 
 async def save_model_ipfs(state_dict, ipfs_host: str) -> str:
     client = aioipfs.AsyncIPFS(maddr=ipfs_host)
+    import os
+    import io
+    os.makedirs("upload", exist_ok=True)
     cur_time = str(datetime.now().strftime("%Y-%m-%d-%H-%M-%S") + ".pickle")
     # print(type(state_dict))
     torch.save(state_dict, f"upload/{cur_time}")
-    # np.save(f"upload/{cur_time}", state_dict, allow_pickle=True)
-    # pickle.dump(state_dict, open(f"upload/{cur_time}", "wb"))
-    [cid] = [entry["Hash"] async for entry in client.add(f"upload/{cur_time}")]
-    cid = str(cid)
+    
+    with open(f"upload/{cur_time}", "rb") as f:
+        data = f.read()
+
+    try:
+        # Using BytesIO because it has getbuffer() which aiohttp expects
+        # We use a list comprehension to get the CID from the generator
+        results = [entry["Hash"] async for entry in client.add(io.BytesIO(data))]
+        cid = str(results[0])
+    except aioipfs.exceptions.APIError as e:
+        print(f"IPFS API Error: {e}")
+        # Fallback to shell if library fails
+        import subprocess
+        process = subprocess.run(['ipfs', 'add', '-q', f"upload/{cur_time}"], capture_output=True, text=True)
+        cid = process.stdout.strip()
+        if not cid:
+            raise e
+    
     await client.close()
     return cid
 

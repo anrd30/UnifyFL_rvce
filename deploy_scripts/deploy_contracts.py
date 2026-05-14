@@ -40,7 +40,7 @@ random_numbers = output2.decode().split("\n")[-3].split()[-1]
 
 if mode == "1":
     c3 = (
-        f"forge create --rpc-url {RPC_URL} --broadcast --private-key {PRIVATE_KEY} contracts/AsyncRound.sol:AsyncRound"
+        f"forge create --rpc-url {RPC_URL} --broadcast --private-key {PRIVATE_KEY} contracts/SyncRound.sol:SyncRound"
         + " --constructor-args "
         + random_numbers
         + " "
@@ -48,7 +48,7 @@ if mode == "1":
     )
 else:
     c3 = (
-        f"forge create --rpc-url {RPC_URL} --broadcast --private-key {PRIVATE_KEY} contracts/SyncRound.sol:SyncRound"
+        f"forge create --rpc-url {RPC_URL} --broadcast --private-key {PRIVATE_KEY} contracts/AsyncRound.sol:AsyncRound"
         + " --constructor-args "
         + random_numbers
         + " "

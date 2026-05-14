@@ -87,7 +87,7 @@ def main():
     # )
     while True:
         for event in async_contract.events.StartScoring().get_logs(
-            fromBlock=last_seen_block
+            from_block=last_seen_block
         ):
             if event not in events:
                 events.add(event)

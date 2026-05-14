@@ -5,7 +5,7 @@ import torch
 import csv
 import sys
 from torch.utils.data import DataLoader
-from ekatrafl.base.model import models
+from unifyfl.base.model import models
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 DEVICE = "cpu"
@@ -27,6 +27,11 @@ global_files = sorted(
     [f for f in files if f.split("-")[-1] == "global.pt"],
     key=lambda x: int(x.split("-")[0]),
 )
+
+limit = int(sys.argv[4]) if len(sys.argv) > 4 else None
+if limit:
+    local_files = local_files[-limit:]
+    global_files = global_files[-limit:]
 
 
 def evaluate_model(filename: str) -> List[float]:

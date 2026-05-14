@@ -21,12 +21,18 @@ DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 # Define Flower client
 class FlowerClient(fl.client.NumPyClient):
-    def __init__(self, model, log=False, epochs=1):
+    def __init__(self, model, log=False, epochs=1, is_malicious=False, attack_type=None):
         self.model = model().to(DEVICE)
         self.log = log
         self.epochs = epochs
+        self.is_malicious = is_malicious
+        self.attack_type = attack_type
         self.trainloader, self.testloader = model.load_data()
         self.optimizer = self.model.get_optimizer()
+        
+        if self.is_malicious:
+            print(f"⚠️ MALICIOUS CLIENT INITIALIZED: Attack={self.attack_type}")
+
         if os.environ.get("PRIVACY"):
             print("Privacy Enabled")
             privacy_engine = PrivacyEngine()
@@ -49,8 +55,22 @@ class FlowerClient(fl.client.NumPyClient):
         self.model.load_state_dict(state_dict, strict=True)
 
     def fit(self, parameters, config):
+        print(f"--- Starting training for {self.epochs} epochs ---", flush=True)
         self.set_parameters(parameters)
-        self.model.train_model(self.trainloader, self.epochs, self.optimizer)
+        
+        # Apply data poisoning if malicious
+        if self.is_malicious and self.attack_type == "label_flipping":
+            print("🔥 Executing Label Flipping Attack...")
+            poisoned_loader = []
+            for batch in self.trainloader:
+                # Flip labels: (label + 1) % 10
+                batch["label"] = (batch["label"] + 1) % 10
+                poisoned_loader.append(batch)
+            self.model.train_model(poisoned_loader, self.epochs, self.optimizer)
+        else:
+            self.model.train_model(self.trainloader, self.epochs, self.optimizer)
+            
+        print("--- Finished training ---", flush=True)
         return self.get_parameters(config={}), len(self.trainloader.dataset), {}
 
     def evaluate(self, parameters, config):
@@ -78,12 +98,29 @@ def main():
         (workload, flwr_server_address, epochs) = itemgetter(
             "workload", "flwr_server_address", "epochs"
         )(config)
+        
+        # Priority: Env Var > Config File
+        is_malicious = os.environ.get("IS_MALICIOUS", "false").lower() == "true" or config.get("is_malicious", False)
+        attack_type = os.environ.get("ATTACK_TYPE") or config.get("attack_type", None)
 
     model = models[workload]
-    fl.client.start_numpy_client(
-        server_address=flwr_server_address,
-        client=FlowerClient(model, log=True, epochs=epochs),
-    )
+    import time
+    max_retries = 10
+    for i in range(max_retries):
+        try:
+            fl.client.start_numpy_client(
+                server_address=flwr_server_address,
+                client=FlowerClient(model, log=True, epochs=epochs, is_malicious=is_malicious, attack_type=attack_type),
+                grpc_max_message_length=536870912,
+            )
+            break
+        except Exception as e:
+            if i < max_retries - 1:
+                print(f"Connection failed, retrying in 5s... ({i+1}/{max_retries})")
+                time.sleep(5)
+            else:
+                raise e
+
 
 
 if __name__ == "__main__":

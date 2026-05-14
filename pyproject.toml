@@ -22,10 +22,10 @@ single-level='unifyfl.base.single_level:main'
 
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = ">=3.10,<3.13"
 flwr = "1.7.0"
-torch = "^2.3.0"
-torchvision = "^0.18.0"
+torch = ">=2.0.0,<2.3.0"
+torchvision = ">=0.15.0,<0.18.0"
 aioipfs = "^0.6.3"
 web3 = "^6.4.0"
 tqdm = "^4.66.1"

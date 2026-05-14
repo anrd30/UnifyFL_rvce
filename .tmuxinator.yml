@@ -2,60 +2,32 @@
 #!WARNING: this script will not work directly without configured ssh ids - remove ssh commands to run on single node, and update config param on each node to be different files with different private keys
 
 name: async
-root: ~/UnifyFL
+root: /Users/shash/Downloads/FL/UnifyFL
 
 windows:
   - aggregators:
       layout: tiled
-      # Synchronize all panes of this window, can be enabled before or after the pane commands run.
-      # 'before' represents legacy functionality and will be deprecated in a future release, in favour of 'after'
-      # synchronize: after
       panes:
-        - d2:
-            - cd ~/UnifyFL
-            - poetry run async-agg configs/async/agg.config.json
-        - d3:
-            - ssh node2
-            - cd ~/UnifyFL
-            - poetry run async-agg configs/async/agg.config.json
-        - d4:
-            - ssh node3
-            - cd ~/UnifyFL
-            - poetry run async-agg configs/async/agg.config.json
+        - aggregator:
+            - cd /Users/shash/Downloads/FL/UnifyFL
+            - .venv312/bin/python -m unifyfl.async.async configs/async/agg.config.json
        
   - scorers:
       layout: tiled
       panes:
-        - d2:
-            - cd ~/UnifyFL
-            - poetry run async-scorer configs/async/agg.config.json
-        - d3:
-            - ssh node2
-            - cd ~/UnifyFL
-            - poetry run async-scorer configs/async/agg.config.json
-        - d4:
-            - ssh node3
-            - cd ~/UnifyFL
-            - poetry run async-scorer configs/async/agg.config.json
-  - rpi:
+        - scorer:
+            - cd /Users/shash/Downloads/FL/UnifyFL
+            - .venv312/bin/python -m unifyfl.async.scorer configs/async/agg.config.json
+
+  - clients:
       layout: tiled
       panes:
-        - rpi1:
-            - cd ~/UnifyFL
+        - clients_docker:
+            - cd /Users/shash/Downloads/FL/UnifyFL
             - docker compose up
-        - rpi2:
-            - ssh node2
-            - cd ~/UnifyFL
-            - docker compose up
-        - rpi3:
-            - ssh node3
-            - cd ~/UnifyFL
-            - docker compose up
+
   - support:
-        layout: tiled
-        panes:
+      layout: tiled
+      panes:
         - ipfs:
             - ipfs daemon
-        - anvil:
-            - SYSTEM_IP=$(hostname -I | awk '{print $1}')
-            - anvil --host $SYSTEM_IP 

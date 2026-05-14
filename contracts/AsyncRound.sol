@@ -98,11 +98,12 @@ contract AsyncRound {
         string[] memory models = new string[](trainersLength);
         uint256[][] memory scores = new uint256[][](trainersLength);
 
-        for (uint256 i = 0; i < trainers.length; i++) {
-            if (trainerToModels[trainers[i]].length == 0) {
+        for (uint256 i = 0; i < trainersLength; i++) {
+            uint256 modelCount = trainerToModels[trainers[i]].length;
+            if (modelCount == 0) {
                 continue;
             }
-            models[i] = trainerToModels[trainers[i]][trainerToModels[trainers[i]].length - 1];
+            models[i] = trainerToModels[trainers[i]][modelCount - 1];
             scores[i] = modelToScores[models[i]];
         }
 

@@ -39,10 +39,11 @@ class EMNISTModel(nn.Module):
         x = self.fc3(x)
         return x
 
-    def train_model(self, trainloader, epochs):
+    def train_model(self, trainloader, epochs, optimizer=None):
         """Train the model on the training set."""
         criterion = torch.nn.CrossEntropyLoss()
-        optimizer = torch.optim.SGD(self.parameters(), lr=0.001, momentum=0.9)
+        if optimizer is None:
+            optimizer = torch.optim.SGD(self.parameters(), lr=0.001, momentum=0.9)
         print("training")
         for _ in range(epochs):
             for images, labels in tqdm(trainloader):

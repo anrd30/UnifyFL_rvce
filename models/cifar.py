@@ -17,9 +17,17 @@ from datasets import load_from_disk
 
 def apply_transforms(batch):
     transforms = Compose([ToTensor(), Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-    # print(batch.keys())
-    # print(np.array(batch['image'][0]).shape)
-    batch["image"] = [transforms(np.transpose(np.array(img), (1, 2, 0))) for img in batch["image"]]
+    
+    new_images = []
+    for img in batch["image"]:
+        img_arr = np.array(img)
+        # If shape is (3, 32, 32), transpose to (32, 32, 3) for ToTensor
+        if img_arr.shape == (3, 32, 32):
+            img_arr = np.transpose(img_arr, (1, 2, 0))
+        # If it is already (32, 32, 3) or a PIL image, ToTensor handles it correctly
+        new_images.append(transforms(img_arr))
+        
+    batch["image"] = new_images
     return batch
 
 
@@ -52,19 +60,24 @@ class CIFAR10Model(nn.Module):
         x = F.relu(self.fc2(x))
         return self.fc3(x)
 
-    def train_model(self, trainloader, epochs, optimizer):
+    def train_model(self, trainloader, epochs, optimizer=None):
         """Train the model on the training set."""
         criterion = nn.CrossEntropyLoss()
-        optimizer = torch.optim.SGD(self.parameters(), lr=0.001, momentum=0.9)
+        if optimizer is None:
+            lr = float(os.environ.get("LR", "0.001"))
+            optimizer = torch.optim.SGD(self.parameters(), lr=lr, momentum=0.9)
+        
         self.train()
-        for _ in range(epochs):
-            for batch in tqdm(trainloader):
+        for epoch in range(epochs):
+            for i, batch in enumerate(tqdm(trainloader, disable=True)): # Disable tqdm for cleaner docker logs
                 images, labels = batch["image"].to(DEVICE).float(), batch["label"].to(
                     DEVICE
                 )
                 optimizer.zero_grad()
                 criterion(self(images), labels).backward()
                 optimizer.step()
+                if i % 100 == 0:
+                    print(f"Epoch {epoch+1}/{epochs}, Batch {i}/{len(trainloader)}", flush=True)
 
     def test_model(self, testloader):
         """Validate the model on the test set."""
@@ -127,9 +140,10 @@ def main():
         testloader,
     ) = CIFAR10Model.load_data()
     net = CIFAR10Model().to(DEVICE)
-    net.eval()
-    print("Start training")
-    net.train_model(trainloader=trainloader, epochs=2)
+    epochs = int(os.environ.get("EPOCHS", "100"))
+    lr_env = os.environ.get("LR", "0.001")
+    print(f"Start training — epochs={epochs}, LR={lr_env}")
+    net.train_model(trainloader=trainloader, epochs=epochs)
     print("Evaluate model")
     loss, accuracy = net.test_model(testloader=testloader)
     print("Loss: ", loss)
