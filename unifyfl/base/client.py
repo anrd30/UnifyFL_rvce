@@ -71,12 +71,33 @@ class FlowerClient(fl.client.NumPyClient):
             self.model.train_model(self.trainloader, self.epochs, self.optimizer)
             
         print("--- Finished training ---", flush=True)
+        
+        # Apply model poisoning (Gaussian noise) if enabled
+        if self.is_malicious and self.attack_type == "gaussian_noise":
+            print("🔥 Executing Gaussian Noise Poisoning Attack...")
+            noise_scale = float(os.environ.get("NOISE_SCALE", "0.1"))
+            self._add_gaussian_noise(noise_scale)
+            print(f"✓ Gaussian noise added with scale: {noise_scale}")
+        
         return self.get_parameters(config={}), len(self.trainloader.dataset), {}
 
     def evaluate(self, parameters, config):
         self.set_parameters(parameters)
         loss, accuracy = self.model.test_model(self.testloader)
         return loss, len(self.testloader.dataset), {"accuracy": accuracy}
+    
+    def _add_gaussian_noise(self, scale: float):
+        """
+        Add Gaussian noise to all model parameters.
+        
+        Args:
+            scale: Standard deviation of the Gaussian noise relative to parameter magnitudes
+        """
+        with torch.no_grad():
+            for param in self.model.parameters():
+                # Generate Gaussian noise with standard deviation proportional to parameter values
+                noise = torch.randn_like(param) * scale
+                param.add_(noise)
 
 
 def main():
@@ -102,6 +123,7 @@ def main():
         # Priority: Env Var > Config File
         is_malicious = os.environ.get("IS_MALICIOUS", "false").lower() == "true" or config.get("is_malicious", False)
         attack_type = os.environ.get("ATTACK_TYPE") or config.get("attack_type", None)
+        epochs = int(os.environ.get("EPOCHS", epochs))
 
     model = models[workload]
     import time

@@ -2,8 +2,8 @@
     "workload": "cifar10",
     "geth_endpoint": "http://127.0.0.1:8545",
     "geth_account": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-    "registration_contract_address": "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707",
-    "contract_address": "0xa513E6E4b8f2a923D98304ec87F64353C4D5C853",
+    "registration_contract_address": "0x56fC17a65ccFEC6B7ad0aDe9BD9416CB365B9BE8",
+    "contract_address": "0xFE5f411481565fbF70D8D33D992C78196E014b90",
     "flwr_min_fit_clients": 1,
     "flwr_min_available_clients": 1,
     "flwr_min_evaluate_clients": 1,
@@ -11,8 +11,8 @@
     "ipfs_host": "/ip4/127.0.0.1/tcp/5001",
     "scorer": "accuracy",
     "k": "2",
-    "aggregation_policy": "pick_top_k",
+    "aggregation_policy": "pick_all",
     "scoring_policy": "assign_score_mean",
     "strategy": "fedavg",
-    "experiment_id": "e366d3f2-8f78-4e39-8413-bd8ac12c7449"
+    "experiment_id": "4f0a0979-aff8-4d0f-8e8d-f2dca026e886"
 }

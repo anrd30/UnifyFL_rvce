@@ -1,5 +1,5 @@
 {
   "workload": "cifar10",
-  "flwr_server_address": "192.168.1.4:8088",
+  "flwr_server_address": "localhost:8088",
   "epochs": 5
 }

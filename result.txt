@@ -1,0 +1,11 @@
+Accuracy: 58.67%
+Loss: 3.54
+This represents the performance of the model in a "perfect" or traditional scenario where a single central computer has direct access to all 50,000 training images at the same time.
+
+Metric	Centralized Baseline	UnifyFL (Federated Async)	Difference / Delta
+Accuracy	58.67%	28.33%	-30.34% (Accuracy Gap)
+Loss	1.35	2.67	+1.32
+Training Rounds/Epochs	100 Epochs	100 Async Rounds	—
+Data Accessibility	100% (All 50,000 images)	~4 clients (~224 images/round)	Restricted / Siloed
+Orchestration	Single Python Process	Blockchain (Anvil) + IPFS	Decentralized
+Infrastructure	Local Memory	Docker + gRPC + IPFS	Distributed

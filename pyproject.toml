@@ -33,6 +33,8 @@ opacus = "1.4.1"
 datasets = "^3.4.1"
 spur = "^0.3.23"
 aiohttp = "==3.11.0"
+async-timeout = "^5.0.1"
+psutil = "^7.2.2"
 
 
 [tool.poetry.group.dev.dependencies]

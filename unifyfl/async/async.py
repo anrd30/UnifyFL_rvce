@@ -11,6 +11,7 @@ from datetime import datetime
 import logging
 import sys
 import asyncio
+import threading
 
 from web3 import Web3
 from time import sleep
@@ -142,8 +143,19 @@ class AsyncServer(Server):
         self.cid = None
         self.model = model()
         registration_contract.functions.registerNode("trainer").transact()
-        # threading.Thread(target=self.run_rounds).start()
-        self.single_round()
+        self._rounds_thread = threading.Thread(target=self.run_rounds, daemon=False)
+        self._rounds_thread.start()
+
+    def run_rounds(self):
+        import asyncio
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        while True:
+            try:
+                self.single_round()
+            except Exception as e:
+                logger.error(f"Error in single_round: {e}")
+                sleep(5)
 
     def set_parameters(self, parameters):
         print("set param", len(parameters))
@@ -177,14 +189,9 @@ class AsyncServer(Server):
             global_models, aggregation_policy, scoring_policy, int(k), self.cid
         )
 
+        loop = getattr(self, '_loop', asyncio.get_event_loop())
         if len(selected_models) > 0:
             logger.info(f"Aggregating models {selected_models}")
-            # models = list(
-            #     map(
-            #         parameters_to_ndarrays,
-            #         loop.run_until_complete(load_models(selected_models, ipfs_host)),
-            #     )
-            # )
             state_dicts = loop.run_until_complete(
                 load_models(selected_models, ipfs_host)
             )
@@ -252,7 +259,8 @@ class AsyncServer(Server):
             f"save/async/{workload}/{experiment_id}/{self.round_id:02d}-{cur_time}-local.pt",
         )
 
-        cid = asyncio.run(save_model_ipfs(self.model.state_dict(), ipfs_host))
+        loop = getattr(self, '_loop', asyncio.get_event_loop())
+        cid = loop.run_until_complete(save_model_ipfs(self.model.state_dict(), ipfs_host))
         logger.info(f"Model saved to IPFS with CID: {cid}")
         self.cid = cid
         while True:
@@ -265,8 +273,8 @@ class AsyncServer(Server):
                 continue
         logger.info("Model submitted to contarct")
         logger.info(f"Round {self.round_id} ended")
-        sleep(15)
-        self.single_round()
+        sleep(10)
+        # self.single_round()  # Removed to fix Deep Recursion error
 
 
 # Define strategy
@@ -295,18 +303,14 @@ else:  # aggregation_policy == "fedopt"
 
 def main():
     """Start server and train model."""
-    # wandb.init(
-    #     project="unifyfl",
-    #     config={
-    #         "workload": "cifar10",
-    #         "aggregation_policy": aggregation_policy,
-    #         "scoring_policy": scoring_policy,
-    #         "k": k,
-    #     },
-    #     group=experiment_id,
-    #     name=f"{socket.gethostname() if socket.gethostname() != 'raspberrypi' else getpass.getuser()}-async-agg",
-    # )
-    AsyncServer(server_address=flwr_server_address, strategy=strategy)
+    server = AsyncServer(server_address=flwr_server_address, strategy=strategy)
+    # Block main thread so the rounds thread can keep running.
+    # run_rounds is non-daemon, so the process won't exit until it finishes.
+    try:
+        server._rounds_thread.join()
+    except KeyboardInterrupt:
+        logger.info("Shutting down server...")
+        server.stop()
 
 
 if __name__ == "__main__":

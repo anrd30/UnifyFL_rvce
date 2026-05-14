@@ -26,17 +26,21 @@ command1 = c1.split()
 c2 = f"forge create --rpc-url {RPC_URL} --broadcast --private-key {PRIVATE_KEY} contracts/RandomNumbers.sol:RandomNumbers"
 command2 = c2.split()
 
+def get_deployed_address(output):
+    for line in output.decode().split("\n"):
+        if "Deployed to:" in line:
+            return line.split()[-1]
+    return None
+
 print(c1)
 output1 = subprocess.Popen(command1, stdout=subprocess.PIPE).communicate()[-2]
 print(output1.decode())
-registration = output1.decode().split("\n")
-
-
-registration = registration[-3].split()[-1]
+registration = get_deployed_address(output1)
 print("reg", registration)
 
 output2 = subprocess.Popen(command2, stdout=subprocess.PIPE).communicate()[-2]
-random_numbers = output2.decode().split("\n")[-3].split()[-1]
+random_numbers = get_deployed_address(output2)
+print("rand", random_numbers)
 
 if mode == "1":
     c3 = (
@@ -56,7 +60,7 @@ else:
     )
 print(c3)
 output3 = subprocess.Popen(c3.split(), stdout=subprocess.PIPE).communicate()[-2]
-sync = output3.decode().split("\n")[-3].split()[-1]
+sync = get_deployed_address(output3)
 print(output3.decode(), sync)
 os.chdir("..")
 if len(sys.argv) > 2:
