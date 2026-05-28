@@ -165,9 +165,12 @@ class FLExperiment:
         logger.info("Setting up configuration files...")
         
         # Try to load existing contract addresses from central config
+        import uuid
         central_config_path = Path("configs/async/agg.config.json")
         reg_address = "0x5FbDB2315678afecb367f032d93F642f64180aa3" # Fallback
         contract_address = "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0" # Fallback
+        experiment_id = str(uuid.uuid4())
+        strategy = "fedavg"
         
         if central_config_path.exists():
             try:
@@ -175,6 +178,8 @@ class FLExperiment:
                     central_data = json.load(f)
                     reg_address = central_data.get("registration_contract_address", reg_address)
                     contract_address = central_data.get("contract_address", contract_address)
+                    experiment_id = central_data.get("experiment_id", experiment_id)
+                    strategy = central_data.get("strategy", strategy)
                     logger.info(f"Loaded contract addresses from {central_config_path}")
             except Exception as e:
                 logger.warning(f"Could not read central config: {e}. Using defaults.")
@@ -192,8 +197,12 @@ class FLExperiment:
             "flwr_server_address": "localhost:5000",
             "ipfs_host": "/ip4/127.0.0.1/tcp/5001",
             "aggregation_policy": self.config.aggregation_policy,
-            "scoring_policy": self.config.scoring_policy,
+            "scoring_policy": "assign_score_mean",
             "k": self.config.k,
+            "scorer": self.config.scoring_policy,
+            "strategy": strategy,
+            "experiment_id": experiment_id,
+            "num_rounds": self.config.num_rounds,
         }
         
         agg_config_path = self.results_dir / "agg_config.json"
@@ -201,6 +210,18 @@ class FLExperiment:
             json.dump(agg_config, f, indent=2)
         
         logger.info(f"Aggregator config saved to {agg_config_path}")
+
+        # Create matched party config for clients
+        party_config = {
+            "workload": self.config.workload,
+            "flwr_server_address": "localhost:5000",
+            "epochs": self.config.epochs_per_round
+        }
+        party_config_path = self.results_dir / "party_config.json"
+        with open(party_config_path, 'w') as f:
+            json.dump(party_config, f, indent=2)
+        logger.info(f"Party config saved to {party_config_path}")
+
         return agg_config_path
     
     def create_client_configs(self) -> List[Tuple[int, bool]]:
@@ -233,7 +254,7 @@ class FLExperiment:
         else:
             log_name = f"client_{client_id}_benign.log"
         
-        command = ["poetry", "run", "party", "configs/party.json"]
+        command = ["poetry", "run", "party", str(self.results_dir / "party_config.json")]
         log_path = self.results_dir / log_name
         
         return self.process_mgr.start_process(
@@ -255,7 +276,20 @@ class FLExperiment:
         
         try:
             # Setup configs
-            self.setup_configs()
+            agg_config_path = self.setup_configs()
+            
+            # Start aggregator
+            agg_command = ["poetry", "run", "async-agg", str(agg_config_path)]
+            agg_log_path = self.results_dir / "aggregator.log"
+            self.process_mgr.start_process("aggregator", agg_command, log_file=str(agg_log_path))
+            
+            # Start scorer
+            scorer_command = ["poetry", "run", "async-scorer", str(agg_config_path)]
+            scorer_log_path = self.results_dir / "scorer.log"
+            self.process_mgr.start_process("scorer", scorer_command, log_file=str(scorer_log_path))
+            
+            # Stagger startup to allow port binding
+            time.sleep(5)
             
             # Get client configs
             client_configs = self.create_client_configs()
@@ -281,6 +315,11 @@ class FLExperiment:
                 
                 if active_clients == 0:
                     logger.info("All clients completed")
+                    break
+                
+                # Check if aggregator has exited
+                if not self.process_mgr.is_running("aggregator"):
+                    logger.info("Aggregator completed/exited")
                     break
                 
                 # Simple heartbeat
@@ -312,8 +351,8 @@ class ExperimentRunner:
             num_benign_clients=10,
             num_malicious_clients=0,
             noise_scale=0.0,
-            num_rounds=10,
-            epochs_per_round=1,
+            num_rounds=25,
+            epochs_per_round=3,
             aggregation_policy="pick_top_k",
             scoring_policy="accuracy",
             k=5,
@@ -328,8 +367,8 @@ class ExperimentRunner:
             num_benign_clients=9,
             num_malicious_clients=1,
             noise_scale=0.1,
-            num_rounds=10,
-            epochs_per_round=1,
+            num_rounds=25,
+            epochs_per_round=3,
             aggregation_policy="pick_top_k",
             scoring_policy="accuracy",
             k=5,
@@ -344,10 +383,26 @@ class ExperimentRunner:
             num_benign_clients=9,
             num_malicious_clients=1,
             noise_scale=0.1,
-            num_rounds=10,
-            epochs_per_round=1,
+            num_rounds=25,
+            epochs_per_round=3,
             aggregation_policy="pick_top_k",
             scoring_policy="multi_krum",
+            k=5,
+            workload="cifar10",
+            batch_size=32,
+        )
+    
+    def create_pinn_defense_config(self) -> ExperimentConfig:
+        """Defense scenario: 1 malicious + 9 benign with PINN Guard defense"""
+        return ExperimentConfig(
+            name="defense_pinn_vs_noise",
+            num_benign_clients=9,
+            num_malicious_clients=1,
+            noise_scale=0.1,
+            num_rounds=25,
+            epochs_per_round=3,
+            aggregation_policy="pick_top_k",
+            scoring_policy="pinn_guard",
             k=5,
             workload="cifar10",
             batch_size=32,
@@ -359,6 +414,7 @@ class ExperimentRunner:
             ("Baseline (10 benign clients)", self.create_baseline_config()),
             ("Attack (1 poisoned + 9 benign with accuracy scoring)", self.create_attack_config()),
             ("Defense (1 poisoned + 9 benign with Multi-Krum)", self.create_defense_config()),
+            ("Defense (1 poisoned + 9 benign with PINN Guard)", self.create_pinn_defense_config()),
         ]
         
         results_summary = {}
@@ -423,6 +479,11 @@ Examples:
         help="Run defense experiment (Gaussian noise + Multi-Krum)"
     )
     parser.add_argument(
+        "--pinn",
+        action="store_true",
+        help="Run PINN Guard defense experiment (Gaussian noise + PINN Guard)"
+    )
+    parser.add_argument(
         "--all",
         action="store_true",
         help="Run all experiment scenarios"
@@ -439,7 +500,7 @@ Examples:
     parser.add_argument("--noise-scale", type=float, default=0.1, help="Gaussian noise scale")
     parser.add_argument("--rounds", type=int, default=10, help="Number of FL rounds")
     parser.add_argument("--epochs", type=int, default=1, help="Epochs per round")
-    parser.add_argument("--scoring", choices=["accuracy", "multi_krum"], 
+    parser.add_argument("--scoring", choices=["accuracy", "multi_krum", "pinn_guard"], 
                        default="accuracy", help="Scoring policy")
     
     args = parser.parse_args()
@@ -458,6 +519,10 @@ Examples:
         experiment.run()
     elif args.defense:
         config = runner.create_defense_config()
+        experiment = FLExperiment(config)
+        experiment.run()
+    elif args.pinn:
+        config = runner.create_pinn_defense_config()
         experiment = FLExperiment(config)
         experiment.run()
     elif args.custom:

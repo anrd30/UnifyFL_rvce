@@ -73,6 +73,7 @@ with open(sys.argv[1]) as f:
     )(
         config
     )
+num_rounds = config.get("num_rounds", 100)
 
 model = models[workload]
 
@@ -233,10 +234,27 @@ class AsyncServer(Server):
             print(f"not aggregating {self.round_id}")
 
     def single_round(self):
-        if self.round_id >= 100:
-            logger.info("Max rounds reached (100). Exiting.")
-            # wandb.finish()
-            exit()
+        if self.round_id >= num_rounds:
+            logger.info(f"Max rounds reached ({num_rounds}). Waiting for the last round's model ({self.cid}) to be scored...")
+            while True:
+                try:
+                    models, scores = async_contract.functions.getLatestModelsWithScores().call()
+                    found_and_scored = False
+                    for m, s in zip(models, scores):
+                        if m == self.cid and len(s) > 0:
+                            found_and_scored = True
+                            break
+                    if found_and_scored:
+                        logger.info(f"Last round's model {self.cid} has been scored! Exiting aggregator cleanly.")
+                        break
+                except Exception as e:
+                    logger.warning(f"Error checking scores on contract: {e}")
+                sleep(10)
+            
+            # Stop the gRPC server and exit the process
+            self.stop()
+            import sys
+            sys.exit(0)
         self.round_id += 1
         self.aggregate_models()
         self.round_ongoing = True

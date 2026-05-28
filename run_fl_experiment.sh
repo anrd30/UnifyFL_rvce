@@ -195,6 +195,8 @@ run_experiment_scenario() {
         poetry run python experiments/fl_pipeline_experiment.py --attack
     elif [ "$scenario" = "defense" ]; then
         poetry run python experiments/fl_pipeline_experiment.py --defense
+    elif [ "$scenario" = "pinn" ]; then
+        poetry run python experiments/fl_pipeline_experiment.py --pinn
     else
         print_error "Unknown scenario: $scenario"
         return 1
@@ -208,9 +210,19 @@ analyze_results() {
     
     cd "$PROJECT_DIR"
     
-    echo "Comparing all scenarios..."
-    poetry run python experiments/fl_analysis.py \
-        --compare baseline_10benign attack_gaussian_noise_accuracy defense_multikrum_vs_noise
+    local compare_args=""
+    for name in baseline_10benign attack_gaussian_noise_accuracy defense_multikrum_vs_noise defense_pinn_vs_noise; do
+        if [ -d "$RESULTS_DIR/$name" ]; then
+            compare_args="$compare_args $name"
+        fi
+    done
+    
+    if [ -n "$compare_args" ]; then
+        echo "Comparing scenarios: $compare_args"
+        poetry run python experiments/fl_analysis.py --compare $compare_args
+    else
+        print_warning "No experiment result directories found to analyze."
+    fi
 }
 
 cleanup() {
@@ -278,6 +290,15 @@ case "${1:-all}" in
         analyze_results
         ;;
     
+    pinn)
+        check_prerequisites
+        start_blockchain
+        start_ipfs
+        deploy_contracts 0 pick_top_k assign_score_mean 5
+        run_experiment_scenario "pinn" "defense_pinn_vs_noise" 9 1 0.1 "pinn_guard"
+        analyze_results
+        ;;
+    
     all)
         check_prerequisites
         start_blockchain
@@ -291,6 +312,9 @@ case "${1:-all}" in
         sleep 30
         
         run_experiment_scenario "defense" "defense_multikrum_vs_noise" 9 1 0.1 "multi_krum"
+        sleep 30
+        
+        run_experiment_scenario "pinn" "defense_pinn_vs_noise" 9 1 0.1 "pinn_guard"
         
         analyze_results
         ;;
@@ -307,12 +331,14 @@ case "${1:-all}" in
         echo "  baseline           - Run baseline experiment (all benign)"
         echo "  attack             - Run attack experiment (1 attacker + accuracy scoring)"
         echo "  defense            - Run defense experiment (Multi-Krum scoring)"
+        echo "  pinn               - Run PINN Guard defense experiment"
         echo "  all                - Run all experiments in sequence"
         echo ""
         echo "Examples:"
         echo "  bash run_fl_experiment.sh check"
         echo "  bash run_fl_experiment.sh setup    # Terminal 1"
         echo "  bash run_fl_experiment.sh baseline # Terminal 2"
+        echo "  bash run_fl_experiment.sh pinn     # Run PINN Guard defense"
         echo "  bash run_fl_experiment.sh all      # Runs all scenarios"
         echo ""
         exit 1

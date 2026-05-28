@@ -224,7 +224,8 @@ class MetricsCollector:
         # Determine scenario type
         scenario_type = "baseline"
         if malicious_clients:
-            if "multi_krum" in config.get('scoring_policy', '').lower():
+            scoring_policy_lower = config.get('scoring_policy', '').lower()
+            if "multi_krum" in scoring_policy_lower or "pinn_guard" in scoring_policy_lower:
                 scenario_type = "defense"
             else:
                 scenario_type = "attack"

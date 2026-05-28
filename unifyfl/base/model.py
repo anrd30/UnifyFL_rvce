@@ -24,6 +24,41 @@ def accuracy_scorer(model, dataloader: DataLoader):
     return model.test_model(dataloader)
 
 
+def pinn_guard_scorer(model, dataloader: DataLoader, pinn_path: str = None):
+    import os
+    DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
+    from unifyfl.base.pinn import PINNGuard, _compute_physics_loss
+    
+    # 1. Extract logits on the validation dataloader
+    model.eval()
+    all_logits = []
+    with torch.no_grad():
+        for batch in dataloader:
+            images = batch["image"].to(DEVICE).float()
+            logits = model(images)
+            all_logits.append(logits.cpu())
+    all_logits = torch.cat(all_logits, dim=0)[:1000]
+    
+    # 2. Load PINN Guard
+    if pinn_path is None or not os.path.exists(pinn_path):
+        pinn_path = "save/pinn_guard.pt"
+        
+    if not os.path.exists(pinn_path):
+        # Return fallback score if pinn guard is not trained yet
+        return 0.0, 1.0
+        
+    pinn_guard = PINNGuard(input_dim=all_logits.shape[1]).to(DEVICE)
+    pinn_guard.load_state_dict(torch.load(pinn_path, map_location=DEVICE))
+    pinn_guard.eval()
+    
+    # 3. Compute violation (residual)
+    residual = _compute_physics_loss(pinn_guard, all_logits.to(DEVICE)).item()
+    
+    # 4. Invert score so higher is better
+    score = 1.0 / (1.0 + residual)
+    return 0.0, score
+
+
 def get_weights(model: nn.Module.state_dict) -> fl.common.NDArrays:
     """Get model weights as a list of NumPy ndarrays."""
     return [val.cpu().numpy() for _, val in model.items()]
@@ -67,6 +102,7 @@ def multikrum_scorer(
 
 scorers = {
     "accuracy": accuracy_scorer,
+    "pinn_guard": pinn_guard_scorer,
     # "marginal_gain": marginal_gain_scorer,
     "multi_krum": multikrum_scorer,
 }

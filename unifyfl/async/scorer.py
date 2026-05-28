@@ -75,16 +75,46 @@ async_contract = create_async_contract(w3, async_contract_address)
 
 async def score_model(trainer: str, cid: str):
     DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
-    model = models[workload]().to(DEVICE)
-    logger.info(f"Model recevied to score with CID: {cid}")
-    # model.load_state_dict(await load_model_ipfs(cid, ipfs_host))
-    model.load_state_dict(await load_model_ipfs(cid, ipfs_host))
-
+    model_instance = model().to(DEVICE)
+    logger.info(f"Model received to score with CID: {cid}")
+    model_instance.load_state_dict(await load_model_ipfs(cid, ipfs_host))
     logger.info("Model pull from IPFS")
-    loss, accuracy = accuracy_scorer(model, testloader)
-    logger.info(f"Accuracy: {(accuracy*100):>0.2f}%")
-    logger.info(f"Loss: {(loss):>0.2f}")
-    async_contract.functions.submitScore(cid, int(accuracy * 1000)).transact()
+    
+    if scoring == "pinn_guard":
+        pinn_dir = f"save/async/{workload}/{experiment_id}"
+        pinn_path = f"{pinn_dir}/pinn_guard.pt"
+        os.makedirs(pinn_dir, exist_ok=True)
+        if not os.path.exists(pinn_path):
+            logger.info("PINN Guard model checkpoint not found. Training PINN Guard on clean logits first...")
+            model_instance.eval()
+            clean_logits = []
+            with torch.no_grad():
+                for batch in testloader:
+                    images = batch["image"].to(DEVICE).float()
+                    logits = model_instance(images)
+                    clean_logits.append(logits.cpu())
+            clean_logits = torch.cat(clean_logits, dim=0)[:1000]
+            
+            from unifyfl.base.pinn import train_adversarial_pinn_guard
+            pinn_guard_model, _ = train_adversarial_pinn_guard(
+                clean_logits, n_epochs=100, device=DEVICE, verbose=False
+            )
+            torch.save(pinn_guard_model.state_dict(), pinn_path)
+            logger.info(f"PINN Guard trained and saved to {pinn_path}")
+            
+        loss, score = scorer(model_instance, testloader, pinn_path=pinn_path)
+        logger.info(f"PINN Guard Anomaly-Based Score: {(score * 100):>0.2f}")
+        
+        # Calculate and log standard classification accuracy so fl_analysis.py can track it
+        acc_loss, accuracy = accuracy_scorer(model_instance, testloader)
+        logger.info(f"Accuracy: {(accuracy * 100):>0.2f}%")
+        logger.info(f"Loss: {acc_loss:>0.2f}")
+    else:
+        loss, score = scorer(model_instance, testloader)
+        logger.info(f"Accuracy: {(score * 100):>0.2f}%")
+        logger.info(f"Loss: {(loss):>0.2f}")
+        
+    async_contract.functions.submitScore(cid, int(score * 1000)).transact()
     logger.info("Model scores submitted to contract")
 
 

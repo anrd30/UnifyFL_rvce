@@ -74,8 +74,39 @@ def score_function(models, testloader: DataLoader):
         for model_dict in models:
             weights = parameters_to_ndarrays(model_dict)
             set_parameters(nn_model, weights)
-            q.append(scorer(nn_model, testloader))
-        return q[1]
+            loss, score = scorer(nn_model, testloader)
+            q.append(score)
+        return q
+    elif scoring == "pinn_guard":
+        q = []
+        pinn_dir = f"save/sync/{workload}/{experiment_id}"
+        pinn_path = f"{pinn_dir}/pinn_guard.pt"
+        os.makedirs(pinn_dir, exist_ok=True)
+        if not os.path.exists(pinn_path):
+            logger.info("PINN Guard model checkpoint not found. Training on first client's clean logits...")
+            first_weights = parameters_to_ndarrays(models[0])
+            set_parameters(nn_model, first_weights)
+            nn_model.eval()
+            clean_logits = []
+            with torch.no_grad():
+                for batch in testloader:
+                    images = batch["image"].to(DEVICE).float()
+                    logits = nn_model(images)
+                    clean_logits.append(logits.cpu())
+            clean_logits = torch.cat(clean_logits, dim=0)[:1000]
+            from unifyfl.base.pinn import train_adversarial_pinn_guard
+            pinn_guard_model, _ = train_adversarial_pinn_guard(
+                clean_logits, n_epochs=100, device=DEVICE, verbose=False
+            )
+            torch.save(pinn_guard_model.state_dict(), pinn_path)
+            logger.info(f"PINN Guard trained and saved to {pinn_path}")
+            
+        for model_dict in models:
+            weights = parameters_to_ndarrays(model_dict)
+            set_parameters(nn_model, weights)
+            loss, score = scorer(nn_model, testloader, pinn_path=pinn_path)
+            q.append(score)
+        return q
     elif scoring == "multi_krum":
         weights = list(map(parameters_to_ndarrays, models))
         return scorer(weights)
