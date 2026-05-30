@@ -37,6 +37,8 @@ There is a critical difference in the client training intensity and dataset spli
 | **Attack (Old)** (1 epoch, 7 batches) | 10.00% | 9.99% | 10.59% | 10.31% | 14.15% | 15.66% | **15.87%** (R66) |
 | **Multi-Krum (Old)** (1 epoch, 7 batches)| 18.10% | N/A | N/A | N/A | N/A | N/A | **17.79%** (R2) |
 
+![PINN Guard Accuracy Chart](file:///Users/shash/Downloads/FL/UnifyFL/assets/images/pinn_results_chart.png)
+
 ```
 Classification Accuracy (%) over FL Rounds:
 50% |                                               * * * (Baseline Final: 46.68%)

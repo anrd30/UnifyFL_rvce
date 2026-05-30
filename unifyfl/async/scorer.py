@@ -13,7 +13,7 @@ from web3 import Web3
 
 from unifyfl.base.contract import create_async_contract, create_reg_contract
 
-from unifyfl.base.ipfs import load_model_ipfs
+from unifyfl.base.ipfs import load_model_ipfs, load_models
 from unifyfl.base.model import accuracy_scorer, models, scorers, set_parameters
 
 logging.basicConfig(
@@ -102,13 +102,38 @@ async def score_model(trainer: str, cid: str):
             torch.save(pinn_guard_model.state_dict(), pinn_path)
             logger.info(f"PINN Guard trained and saved to {pinn_path}")
             
-        loss, score = scorer(model_instance, testloader, pinn_path=pinn_path)
+        from unifyfl.base.model import pinn_guard_scorer
+        loss, score = pinn_guard_scorer(model_instance, testloader, pinn_path=pinn_path)
         logger.info(f"PINN Guard Anomaly-Based Score: {(score * 100):>0.2f}")
         
         # Calculate and log standard classification accuracy so fl_analysis.py can track it
         acc_loss, accuracy = accuracy_scorer(model_instance, testloader)
         logger.info(f"Accuracy: {(accuracy * 100):>0.2f}%")
         logger.info(f"Loss: {acc_loss:>0.2f}")
+    elif scoring == "multi_krum":
+        # Fetch latest models from contract to evaluate distances
+        models_list, _ = async_contract.functions.getLatestModelsWithScores().call()
+        all_cids = [m for m in models_list if m != ""]
+        if cid not in all_cids:
+            all_cids.append(cid)
+            
+        if len(all_cids) >= 3:
+            logger.info(f"Computing Multi-Krum across {len(all_cids)} models...")
+            weights_list = await load_models(all_cids, ipfs_host)
+            ndarrays_list = [[val.cpu().numpy() for _, val in w.items()] for w in weights_list]
+            scores_list = scorer(ndarrays_list)
+            cid_index = all_cids.index(cid)
+            score = scores_list[cid_index] / 100.0  # Normalize Multi-Krum score [0, 100] to [0.0, 1.0] for the contract
+            logger.info(f"Multi-Krum Score for {cid}: {scores_list[cid_index]:>0.2f}")
+        else:
+            logger.info("Not enough models for Multi-Krum scoring. Falling back to accuracy.")
+            _, acc = accuracy_scorer(model_instance, testloader)
+            score = acc
+            
+        # Calculate and log standard classification accuracy so fl_analysis.py can track it
+        loss, accuracy = accuracy_scorer(model_instance, testloader)
+        logger.info(f"Accuracy: {(accuracy * 100):>0.2f}%")
+        logger.info(f"Loss: {loss:>0.2f}")
     else:
         loss, score = scorer(model_instance, testloader)
         logger.info(f"Accuracy: {(score * 100):>0.2f}%")

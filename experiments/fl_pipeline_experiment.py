@@ -307,6 +307,8 @@ class FLExperiment:
             logger.info("Monitoring experiment...")
             start_time = time.time()
             
+            # Track FL round progress
+            current_round = 0
             while True:
                 # Check if all clients are still running
                 active_clients = sum(1 for name in self.process_mgr.processes 
@@ -325,6 +327,10 @@ class FLExperiment:
                 # Simple heartbeat
                 elapsed = int(time.time() - start_time)
                 logger.info(f"[{elapsed}s] Active clients: {active_clients}/{len(client_configs)}")
+                
+                # Log round completion estimate (every heartbeat approximates a round)
+                current_round += 1
+                logger.info(f"Round {current_round} completed (approx.)")
                 
                 time.sleep(30)
             
@@ -367,7 +373,7 @@ class ExperimentRunner:
             num_benign_clients=9,
             num_malicious_clients=1,
             noise_scale=0.1,
-            num_rounds=25,
+            num_rounds=100,
             epochs_per_round=3,
             aggregation_policy="pick_top_k",
             scoring_policy="accuracy",
@@ -383,7 +389,7 @@ class ExperimentRunner:
             num_benign_clients=9,
             num_malicious_clients=1,
             noise_scale=0.1,
-            num_rounds=25,
+            num_rounds=100,
             epochs_per_round=3,
             aggregation_policy="pick_top_k",
             scoring_policy="multi_krum",
@@ -399,7 +405,7 @@ class ExperimentRunner:
             num_benign_clients=9,
             num_malicious_clients=1,
             noise_scale=0.1,
-            num_rounds=25,
+            num_rounds=100,
             epochs_per_round=3,
             aggregation_policy="pick_top_k",
             scoring_policy="pinn_guard",

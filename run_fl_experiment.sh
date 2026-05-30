@@ -131,7 +131,7 @@ start_ipfs() {
             ipfs init > /dev/null 2>&1
         fi
         
-        nohup ipfs daemon > "$LOG_DIR/ipfs.log" 2>&1 &
+        nohup ipfs daemon --offline > "$LOG_DIR/ipfs.log" 2>&1 &
         sleep 3
         
         if curl -s http://localhost:$IPFS_PORT/api/v0/version &> /dev/null; then

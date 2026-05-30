@@ -40,5 +40,5 @@ psutil = "^7.2.2"
 [tool.poetry.group.dev.dependencies]
 black = "^23.11.0"
 # psrecord = { git = "https://github.com/Ceres445/psrecord", branch = "master" }
-# matplotlib = "^3.8.2"
+matplotlib = "^3.8.2"
 web3 = { extras = ["tester"], version = "^6.4.0" }
