@@ -77,13 +77,16 @@ def score_function(models, testloader: DataLoader):
             loss, score = scorer(nn_model, testloader)
             q.append(score)
         return q
-    elif scoring == "pinn_guard":
+    elif scoring in ("pinn_guard", "pinn_guard_fisher"):
         q = []
+        use_fisher = scoring == "pinn_guard_fisher"
         pinn_dir = f"save/sync/{workload}/{experiment_id}"
-        pinn_path = f"{pinn_dir}/pinn_guard.pt"
+        # Keep Fisher and Euclidean guards in separate checkpoints so they never collide
+        ckpt_name = "pinn_guard_fisher.pt" if use_fisher else "pinn_guard.pt"
+        pinn_path = f"{pinn_dir}/{ckpt_name}"
         os.makedirs(pinn_dir, exist_ok=True)
         if not os.path.exists(pinn_path):
-            logger.info("PINN Guard model checkpoint not found. Training on first client's clean logits...")
+            logger.info(f"PINN Guard ({'Fisher' if use_fisher else 'Euclidean'}) checkpoint not found. Training on first client's clean logits...")
             first_weights = parameters_to_ndarrays(models[0])
             set_parameters(nn_model, first_weights)
             nn_model.eval()
@@ -96,11 +99,11 @@ def score_function(models, testloader: DataLoader):
             clean_logits = torch.cat(clean_logits, dim=0)[:1000]
             from unifyfl.base.pinn import train_adversarial_pinn_guard
             pinn_guard_model, _ = train_adversarial_pinn_guard(
-                clean_logits, n_epochs=100, device=DEVICE, verbose=False
+                clean_logits, n_epochs=100, device=DEVICE, verbose=False, use_fisher=use_fisher
             )
             torch.save(pinn_guard_model.state_dict(), pinn_path)
             logger.info(f"PINN Guard trained and saved to {pinn_path}")
-            
+
         for model_dict in models:
             weights = parameters_to_ndarrays(model_dict)
             set_parameters(nn_model, weights)

@@ -48,36 +48,66 @@ class AdversarialAttacker(nn.Module):
         perturbation = self.net(clean_logits)
         return clean_logits + perturbation
 
+
+class FisherInformationMetric:
+    """
+    Fisher Information Metric on the probability simplex.
+
+    Instead of treating logits in flat Euclidean space, we map them to the
+    probability simplex via softmax and weight gradients by the Fisher
+    Information Metric (the natural Riemannian metric on categorical
+    distributions). The metric tensor for a categorical distribution p is
+    diagonal: g_ij = δ_ij / p_i. This gives the simplex non-trivial curvature,
+    amplifying perturbations in low-probability regions where backdoors hide.
+    """
+
+    @staticmethod
+    def fisher_weights(logits: torch.Tensor, eps: float = 1e-4) -> torch.Tensor:
+        """Return the diagonal Fisher weights g^{ii} = 1/p_i for given logits."""
+        probs = torch.softmax(logits, dim=-1).clamp(min=eps)
+        return 1.0 / probs
+
+
 def _compute_physics_loss(
     model: nn.Module,
     logits: torch.Tensor,
     detach_input: bool = True,
+    use_fisher: bool = False,
 ) -> torch.Tensor:
     """
     Compute the Laplacian residual ||∇²f(x)||² for the PINN Guard.
+
+    If use_fisher is True, the Laplacian is weighted by the Fisher Information
+    Metric on the input simplex (1/p_i), making the curvature measure genuinely
+    non-Euclidean rather than flat. Training and scoring must use the same
+    use_fisher value, or the scores won't match the learned objective.
     """
     if detach_input:
         x = logits.clone().detach().requires_grad_(True)
     else:
         x = logits if logits.requires_grad else logits.requires_grad_(True)
-    
+
     output = model(x)
     B, C = output.shape
     laplacian = torch.zeros_like(output)
-    
+
     for i in range(C):
         grad_i = torch.autograd.grad(
             output[:, i].sum(), x,
             create_graph=True, retain_graph=True,
         )[0]
-        
+
         for j in range(C):
             grad_ij = torch.autograd.grad(
                 grad_i[:, j].sum(), x,
                 create_graph=True, retain_graph=True,
             )[0]
             laplacian[:, i] = laplacian[:, i] + grad_ij[:, j]
-            
+
+    # Weight the curvature by the Fisher metric on the input space (g^{ij} = 1/p_i)
+    if use_fisher:
+        laplacian = laplacian * FisherInformationMetric.fisher_weights(x)
+
     return (laplacian ** 2).mean()
 
 def train_adversarial_pinn_guard(
@@ -93,9 +123,13 @@ def train_adversarial_pinn_guard(
     pinn_config: Optional[Dict] = None,
     device: str = 'cpu',
     verbose: bool = False,
+    use_fisher: bool = False,
 ) -> Tuple[PINNGuard, dict]:
     """
     Train Adversarial Min-Max PINN Guard on clean logits.
+
+    use_fisher: if True, the physics loss is weighted by the Fisher Information
+    Metric on the input simplex. The scorer must use the same flag at inference.
     """
     C = clean_logits.shape[1]
     clean_logits = clean_logits.to(device)
@@ -120,11 +154,11 @@ def train_adversarial_pinn_guard(
         pinn_loss_epoch = 0.0
         for _ in range(n_inner_pinn):
             pinn_optimizer.zero_grad()
-            clean_energy = _compute_physics_loss(pinn, clean_logits, detach_input=True)
-            
+            clean_energy = _compute_physics_loss(pinn, clean_logits, detach_input=True, use_fisher=use_fisher)
+
             with torch.no_grad():
                 adv_logits = adversary(clean_logits)
-            adv_energy = _compute_physics_loss(pinn, adv_logits, detach_input=True)
+            adv_energy = _compute_physics_loss(pinn, adv_logits, detach_input=True, use_fisher=use_fisher)
             
             pinn_loss = clean_energy - 0.5 * adv_energy
             pinn_loss.backward()
@@ -138,7 +172,7 @@ def train_adversarial_pinn_guard(
             adv_optimizer.zero_grad()
             adv_logits = adversary(clean_logits)
             
-            evasion_loss = _compute_physics_loss(pinn, adv_logits, detach_input=False)
+            evasion_loss = _compute_physics_loss(pinn, adv_logits, detach_input=False, use_fisher=use_fisher)
             utility = -adv_logits[:, target].mean()
             distance = torch.norm(adv_logits - clean_logits, dim=-1).mean()
             

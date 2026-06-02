@@ -24,11 +24,11 @@ def accuracy_scorer(model, dataloader: DataLoader):
     return model.test_model(dataloader)
 
 
-def pinn_guard_scorer(model, dataloader: DataLoader, pinn_path: str = None):
+def pinn_guard_scorer(model, dataloader: DataLoader, pinn_path: str = None, use_fisher: bool = False):
     import os
     DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
     from unifyfl.base.pinn import PINNGuard, _compute_physics_loss
-    
+
     # 1. Extract logits on the validation dataloader
     model.eval()
     all_logits = []
@@ -38,25 +38,31 @@ def pinn_guard_scorer(model, dataloader: DataLoader, pinn_path: str = None):
             logits = model(images)
             all_logits.append(logits.cpu())
     all_logits = torch.cat(all_logits, dim=0)[:1000]
-    
+
     # 2. Load PINN Guard
     if pinn_path is None or not os.path.exists(pinn_path):
         pinn_path = "save/pinn_guard.pt"
-        
+
     if not os.path.exists(pinn_path):
         # Return fallback score if pinn guard is not trained yet
         return 0.0, 1.0
-        
+
     pinn_guard = PINNGuard(input_dim=all_logits.shape[1]).to(DEVICE)
     pinn_guard.load_state_dict(torch.load(pinn_path, map_location=DEVICE))
     pinn_guard.eval()
-    
-    # 3. Compute violation (residual)
-    residual = _compute_physics_loss(pinn_guard, all_logits.to(DEVICE)).item()
-    
+
+    # 3. Compute violation (residual). use_fisher must match how the guard was
+    #    trained, so the Fisher-weighted curvature lines up with the objective.
+    residual = _compute_physics_loss(pinn_guard, all_logits.to(DEVICE), use_fisher=use_fisher).item()
+
     # 4. Invert score so higher is better
     score = 1.0 / (1.0 + residual)
     return 0.0, score
+
+
+def pinn_guard_fisher_scorer(model, dataloader: DataLoader, pinn_path: str = None):
+    """PINN Guard scored on the Fisher Information Metric (non-Euclidean manifold)."""
+    return pinn_guard_scorer(model, dataloader, pinn_path=pinn_path, use_fisher=True)
 
 
 def get_weights(model: nn.Module.state_dict) -> fl.common.NDArrays:
@@ -103,6 +109,7 @@ def multikrum_scorer(
 scorers = {
     "accuracy": accuracy_scorer,
     "pinn_guard": pinn_guard_scorer,
+    "pinn_guard_fisher": pinn_guard_fisher_scorer,
     # "marginal_gain": marginal_gain_scorer,
     "multi_krum": multikrum_scorer,
 }
