@@ -94,16 +94,28 @@ contract AsyncRound {
      */
     function getLatestModelsWithScores() public view returns (string[] memory, uint256[][] memory) {
         address[] memory trainers = registration.getTrainers();
-        uint256 trainersLength = trainers.length;
-        string[] memory models = new string[](trainersLength);
-        uint256[][] memory scores = new uint256[][](trainersLength);
-
+        
+        // Count trainers with models first
+        uint256 count = 0;
+        for (uint256 i = 0; i < trainers.length; i++) {
+            if (trainerToModels[trainers[i]].length > 0) {
+                count++;
+            }
+        }
+        
+        // Create arrays with correct size (no gaps)
+        string[] memory models = new string[](count);
+        uint256[][] memory scores = new uint256[][](count);
+        
+        // Fill arrays sequentially
+        uint256 index = 0;
         for (uint256 i = 0; i < trainers.length; i++) {
             if (trainerToModels[trainers[i]].length == 0) {
                 continue;
             }
-            models[i] = trainerToModels[trainers[i]][trainerToModels[trainers[i]].length - 1];
-            scores[i] = modelToScores[models[i]];
+            models[index] = trainerToModels[trainers[i]][trainerToModels[trainers[i]].length - 1];
+            scores[index] = modelToScores[models[index]];
+            index++;
         }
 
         return (models, scores);

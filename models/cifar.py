@@ -95,11 +95,11 @@ class CIFAR10Model(nn.Module):
         cur = os.environ.get("TRAIN_SET") or ""
         # trainset = ImageFolder(f"./data/cifar10/train{cur}", transform=trf)
         # testset = ImageFolder(f"./data/cifar10/train{cur}", transform=trf)
-        trainset = load_from_disk(f"./data/cifar10/train{cur}").with_transform(
+        trainset = load_from_disk(f"./data/cifar10_split/train{cur}").with_transform(
             apply_transforms
         )
         testset = (
-            load_from_disk(f"./data/cifar10/test").with_transform(apply_transforms)
+            load_from_disk(f"./data/cifar10_split/test{cur}").with_transform(apply_transforms)
             # .with_format("torch")
         )
         return DataLoader(trainset, batch_size=32, shuffle=True), DataLoader(testset)
@@ -107,10 +107,11 @@ class CIFAR10Model(nn.Module):
     @staticmethod
     def get_testset():
         """Load CIFAR-10 test set."""
+        cur = os.environ.get("TRAIN_SET") or ""
         # trf = Compose([ToTensor(), Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
         # testset = ImageFolder("./data/cifar10/test", transform=trf)
         testset = (
-            load_from_disk("./data/cifar10/test")
+            load_from_disk(f"./data/cifar10_split/test{cur}")
             .with_transform(apply_transforms)
         )
 

@@ -14,7 +14,7 @@ import shutil
 def save_cifar10_as_imagefolder(data_dir='./data'):
     """Download CIFAR-10 and save in ImageFolder format"""
     print("Downloading and converting CIFAR-10 to ImageFolder format...")
-    return
+    #return
     # Create temporary download directory
     temp_dir = os.path.join(data_dir, 'cifar10_temp')
     os.makedirs(temp_dir, exist_ok=True)

@@ -79,11 +79,16 @@ def main():
             "workload", "flwr_server_address", "epochs"
         )(config)
 
+    logger = logging.getLogger("FlowerClient")
     model = models[workload]
+    logger.info("Starting Flower client, connecting to %s...", flwr_server_address)
     fl.client.start_numpy_client(
         server_address=flwr_server_address,
         client=FlowerClient(model, log=True, epochs=epochs),
     )
+    logger.info("==================================================")
+    logger.info("   FLOWER CLIENT FINISHED AND EXITING GRACEFULLY   ")
+    logger.info("==================================================")
 
 
 if __name__ == "__main__":

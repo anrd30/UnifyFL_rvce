@@ -53,6 +53,7 @@ with open(sys.argv[1]) as f:
         k,
         experiment_id,
         strategy,
+        num_rounds,
     ) = itemgetter(
         "workload",
         "geth_endpoint",
@@ -69,6 +70,7 @@ with open(sys.argv[1]) as f:
         "k",
         "experiment_id",
         "strategy",
+        "num_rounds",
     )(
         config
     )
@@ -141,9 +143,10 @@ class AsyncServer(Server):
         self.round_id = 0
         self.cid = None
         self.model = model()
-        registration_contract.functions.registerNode("trainer").transact()
-        # threading.Thread(target=self.run_rounds).start()
-        self.single_round()
+        #registration_contract.functions.registerNode("trainer").transact()
+        # Run rounds in a loop instead of recursion to avoid stack overflow
+        while True:
+            self.single_round()
 
     def set_parameters(self, parameters):
         print("set param", len(parameters))
@@ -229,8 +232,17 @@ class AsyncServer(Server):
         self.round_id += 1
         self.aggregate_models()
         self.round_ongoing = True
-        if self.round_id >= 100:
+        if self.round_id >= int(num_rounds):
             # wandb.finish()
+            logger.info("==================================================")
+            logger.info("   FEDERATED LEARNING EXPERIMENT COMPLETE!        ")
+            logger.info(f"   Successfully finished {num_rounds} rounds.  ")
+            logger.info("   Stopping server and disconnecting clients...   ")
+            logger.info("==================================================")
+            try:
+                self.stop()
+            except Exception as e:
+                logger.error(f"Error stopping server: {e}")
             exit()
         logger.info(f"Round {self.round_id} started")
         parameters = self.start_round()
@@ -252,6 +264,7 @@ class AsyncServer(Server):
         cid = asyncio.run(save_model_ipfs(self.model.state_dict(), ipfs_host))
         logger.info(f"Model saved to IPFS with CID: {cid}")
         self.cid = cid
+        
         while True:
             try:
                 async_contract.functions.submitModel(cid).transact()
@@ -263,7 +276,6 @@ class AsyncServer(Server):
         logger.info("Model submitted to contarct")
         logger.info(f"Round {self.round_id} ended")
         sleep(15)
-        self.single_round()
 
 
 # Define strategy
@@ -303,7 +315,8 @@ def main():
     #     group=experiment_id,
     #     name=f"{socket.gethostname() if socket.gethostname() != 'raspberrypi' else getpass.getuser()}-async-agg",
     # )
-    AsyncServer(server_address=flwr_server_address, strategy=strategy)
+    server_config = fl.server.ServerConfig(num_rounds=int(num_rounds))
+    AsyncServer(server_address=flwr_server_address, strategy=strategy, config=server_config)
 
 
 if __name__ == "__main__":

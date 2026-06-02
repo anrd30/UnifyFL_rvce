@@ -5,7 +5,7 @@ import torch
 import csv
 import sys
 from torch.utils.data import DataLoader
-from ekatrafl.base.model import models
+from unifyfl.base.model import models
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 DEVICE = "cpu"
