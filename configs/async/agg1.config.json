@@ -1,0 +1,19 @@
+{
+    "workload": "cifar10",
+    "geth_endpoint": "http://unifyfl-node4:8545",
+    "geth_account": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    "registration_contract_address": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+    "contract_address": "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707",
+    "flwr_min_fit_clients": 1,
+    "flwr_min_available_clients": 1,
+    "flwr_min_evaluate_clients": 1,
+    "flwr_server_address": "0.0.0.0:5000",
+    "ipfs_host": "/ip4/127.0.0.1/tcp/5001",
+    "scorer": "accuracy",
+    "k": "2",
+    "aggregation_policy": "pick_top_k",
+    "scoring_policy": "assign_score_mean",
+    "strategy": "fedavg",
+    "num_rounds": 100,
+    "experiment_id": "789aafee-f502-4078-a964-a9c9dabafd94"
+}

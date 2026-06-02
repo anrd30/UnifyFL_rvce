@@ -1,56 +1,42 @@
-# To be run from the base folder, it moves into blockchain folder to run commands.
-# Arguments python3 tmux_scripts/deploy_contracts.py <async/sync> pick_top_k assign_score_mean 
-#TODO: add other policies
+# To be run from the base folder
+# Arguments: python3 deploy_scripts/deploy_contracts.py <mode> <aggregation_policy> <scoring_policy> <k> <config_file_path>
+# mode: 0 for async, 1 for sync
 import subprocess, sys
 import spur
 import os
 import uuid
 
-# mode is 1 for sync, 2 for async
 mode = sys.argv[1]
-if len(sys.argv) > 2:
-    aggregation_policy = sys.argv[2]
-    scoring_policy = sys.argv[3]
-    k = sys.argv[4]
+aggregation_policy = sys.argv[2]
+scoring_policy = sys.argv[3]
+k = sys.argv[4]
+config_file_path = sys.argv[5]
+
 experiment_id = str(uuid.uuid4())
 with open("experiments.txt", "a") as f:
     f.write(f"{experiment_id}, {sys.argv}\n")
-RPC_URL = "http://127.0.0.1:8545"
+RPC_URL = "http://unifyfl-node4:8545"
 
 # Generate using get_account.py
 PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
-# os.chdir("contracts")
 c1 = f"forge create --rpc-url {RPC_URL} --broadcast --private-key {PRIVATE_KEY} contracts/Registration.sol:Registration"
 command1 = c1.split()
 c2 = f"forge create --rpc-url {RPC_URL} --broadcast --private-key {PRIVATE_KEY} contracts/RandomNumbers.sol:RandomNumbers"
 command2 = c2.split()
 
-def get_deployed_address(output):
-    for line in output.decode().split("\n"):
-        if "Deployed to:" in line:
-            return line.split()[-1]
-    return None
-
 print(c1)
 output1 = subprocess.Popen(command1, stdout=subprocess.PIPE).communicate()[-2]
 print(output1.decode())
-registration = get_deployed_address(output1)
+registration = output1.decode().split("\n")
+
+registration = registration[-3].split()[-1]
 print("reg", registration)
 
 output2 = subprocess.Popen(command2, stdout=subprocess.PIPE).communicate()[-2]
-random_numbers = get_deployed_address(output2)
-print("rand", random_numbers)
+random_numbers = output2.decode().split("\n")[-3].split()[-1]
 
-if mode == "1":
-    c3 = (
-        f"forge create --rpc-url {RPC_URL} --broadcast --private-key {PRIVATE_KEY} contracts/SyncRound.sol:SyncRound"
-        + " --constructor-args "
-        + random_numbers
-        + " "
-        + registration
-    )
-else:
+if mode == "0":
     c3 = (
         f"forge create --rpc-url {RPC_URL} --broadcast --private-key {PRIVATE_KEY} contracts/AsyncRound.sol:AsyncRound"
         + " --constructor-args "
@@ -58,15 +44,21 @@ else:
         + " "
         + registration
     )
+else:
+    c3 = (
+        f"forge create --rpc-url {RPC_URL} --broadcast --private-key {PRIVATE_KEY} contracts/SyncRound.sol:SyncRound"
+        + " --constructor-args "
+        + random_numbers
+        + " "
+        + registration
+    )
 print(c3)
 output3 = subprocess.Popen(c3.split(), stdout=subprocess.PIPE).communicate()[-2]
-sync = get_deployed_address(output3)
+sync = output3.decode().split("\n")[-3].split()[-1]
 print(output3.decode(), sync)
-os.chdir("..")
-if len(sys.argv) > 2:
-    com2 = f"python3 UnifyFL/deploy_scripts/updatejson.py {registration} {sync} async {aggregation_policy} {scoring_policy} {k} {experiment_id}"
-else:
-    com2 = f"python3 UnifyFL/deploy_scripts/updatejson.py {registration} {sync} async {experiment_id}"
+
+script_dir = os.path.dirname(os.path.abspath(__file__))
+com2 = f"python3 {script_dir}/updatejson.py {registration} {sync} {mode} {aggregation_policy} {scoring_policy} {k} {experiment_id} {config_file_path}"
 print(com2)
 print(subprocess.Popen(com2.split(), stdout=subprocess.PIPE).communicate()[0])
 names = []

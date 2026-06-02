@@ -125,8 +125,12 @@ def main():
         attack_type = os.environ.get("ATTACK_TYPE") or config.get("attack_type", None)
         epochs = int(os.environ.get("EPOCHS", epochs))
 
+    logger = logging.getLogger("FlowerClient")
     model = models[workload]
+    # Combined: Shashwati's malicious-client + retry loop (robust under DinD
+    # container startup races) plus DinD's connect/graceful-exit logging.
     import time
+    logger.info("Starting Flower client, connecting to %s...", flwr_server_address)
     max_retries = 10
     for i in range(max_retries):
         try:
@@ -142,7 +146,9 @@ def main():
                 time.sleep(5)
             else:
                 raise e
-
+    logger.info("==================================================")
+    logger.info("   FLOWER CLIENT FINISHED AND EXITING GRACEFULLY   ")
+    logger.info("==================================================")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 import csv
 from os import sep
 import matplotlib as mpl
+mpl.use('Agg')  # Enable headless mode for Docker
 from matplotlib import markers
 import matplotlib.pyplot as plt
 import numpy as np
@@ -8,7 +9,9 @@ import time
 import sys
 import json
 
-config_file = open("plot.json")
+import os
+plot_json_path = "plot.json" if os.path.exists("plot.json") else "scripts/plot.json"
+config_file = open(plot_json_path)
 config = json.load(config_file)
 
 accuracy_data = []
@@ -146,5 +149,5 @@ for i in range(len(config["lines"])):
 plt.grid()
 # plt.legend()
 # fig.tight_layout()
-plt.show()
+# plt.show() # Commented out for headless container execution
 plt.savefig(config["name"] + ".png")

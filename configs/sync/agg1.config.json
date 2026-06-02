@@ -1,0 +1,14 @@
+{
+    "workload": "cifar10",
+    "geth_endpoint": "http://unifyfl-node4:8545",
+    "geth_account": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    "registration_contract_address": "0x0Dd99d9f56A14E9D53b2DdC62D9f0bAbe806647A",
+    "contract_address": "0x95775fD3Afb1F4072794CA4ddA27F2444BCf8Ac3",
+    "flwr_min_fit_clients": 1,
+    "flwr_min_available_clients": 1,
+    "flwr_min_evaluate_clients": 1,
+    "flwr_server_address": "0.0.0.0:5000",
+    "ipfs_host": "/ip4/127.0.0.1/tcp/5001",
+    "scorer": "accuracy",
+    "timeout": 10
+}

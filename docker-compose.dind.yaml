@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  # Node 1: Aggregator 1
+  node1:
+    image: unifyfl-dind:latest
+    container_name: unifyfl-node1
+    privileged: true
+    security_opt:
+    - "apparmor=unconfined"
+    cap_add:
+      - SYS_ADMIN
+    ports:
+      - "2375:2375"  # Docker daemon port (for external access)
+      - "8000:8000"  # Aggregator 1 port
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - node1-data:/var/lib/docker
+      - ./:/unifyfl # Mount host repo into container, instead of cloning from github at runtime
+    networks:
+      - unifyfl-net
+
+  # Node 2: Aggregator 2
+  node2:
+    image: unifyfl-dind:latest
+    container_name: unifyfl-node2
+    privileged: true
+    security_opt:
+    - "apparmor=unconfined"
+    cap_add:
+      - SYS_ADMIN
+    ports:
+      - "2376:2375"
+      - "8001:8001"
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - node2-data:/var/lib/docker
+      - ./:/unifyfl  # Mount host repo into container
+    networks:
+      - unifyfl-net
+
+  # Node 3: Aggregator 3
+  node3:
+    image: unifyfl-dind:latest
+    container_name: unifyfl-node3
+    privileged: true
+    security_opt:
+    - "apparmor=unconfined"
+    cap_add:
+      - SYS_ADMIN
+    ports:
+      - "2377:2375"
+      - "8002:8002"
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - node3-data:/var/lib/docker
+      - ./:/unifyfl  # Mount host repo into container
+    networks:
+      - unifyfl-net
+
+  # Node 4: Infrastructure (Blockchain + Storage)
+  node4-infra:
+    image: unifyfl-dind:latest
+    container_name: unifyfl-node4
+    privileged: true
+    security_opt:
+    - "apparmor=unconfined"
+    cap_add:
+      - SYS_ADMIN
+    ports:
+      - "2378:2375"
+      - "8545:8545"   # Anvil blockchain
+      - "5001:5001"   # IPFS API
+      - "8080:8080"   # IPFS HTTP gateway
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - node4-data:/var/lib/docker
+      - ./:/unifyfl  # Mount host repo into container
+    networks:
+      - unifyfl-net
+
+volumes:
+  node1-data:
+  node1-unifyfl:
+  node2-data:
+  node2-unifyfl:
+  node3-data:
+  node3-unifyfl:
+  node4-data:
+  node4-unifyfl:
+
+networks:
+  unifyfl-net:
+    driver: bridge

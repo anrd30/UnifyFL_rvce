@@ -7,56 +7,77 @@ x-build: &ekatrafl_build
   image: unifyfl
 
 services:
-  train_container_0:
-    build: .
+  aggregator:
     image: unifyfl
+    command: sh -c "sleep 15 && python unifyfl/async/async.py /code/configs/async/${AGG_CONFIG:-agg1.config.json}"
+    volumes:
+      - /unifyfl:/code
+    environment:
+      - GETH_ENDPOINT=http://unifyfl-node4:8545
+    network_mode: host
+    depends_on:
+      - ipfs
+
+  train_container_0:
+    image: unifyfl
+    command: sh -c "sleep 25 && python unifyfl/base/client.py /code/configs/async/client.config.json"
     environment:
       - TRAIN_SET=0
-    mem_limit: 1g
-    restart: no
-    network_mode: "host"
+    restart: "no"
+    privileged: true
     volumes:
-      - ./configs:/code/configs
-      - ./unifyfl:/code/unifyfl
-      - ./models:/code/models
+      - /unifyfl:/code
+    network_mode: host
+    depends_on:
+      - aggregator
 
   train_container_1:
-    build: .
     image: unifyfl
+    command: sh -c "sleep 25 && python unifyfl/base/client.py /code/configs/async/client.config.json"
     environment:
       - TRAIN_SET=1
-    mem_limit: 1g
-    restart: no
-    network_mode: "host"
+    restart: "no"
+    privileged: true
     volumes:
-      - ./configs:/code/configs
-      - ./unifyfl:/code/unifyfl
-      - ./models:/code/models
+      - /unifyfl:/code
+    network_mode: host
+    depends_on:
+      - aggregator
 
   train_container_2:
-    build: .
     image: unifyfl
+    command: sh -c "sleep 25 && python unifyfl/base/client.py /code/configs/async/client.config.json"
     environment:
       - TRAIN_SET=2
-    mem_limit: 1g
-    restart: no
-    network_mode: "host"
+    restart: "no"
+    privileged: true
     volumes:
-      - ./configs:/code/configs
-      - ./unifyfl:/code/unifyfl
-      - ./models:/code/models
+      - /unifyfl:/code
+    network_mode: host
+    depends_on:
+      - aggregator
 
+  # train_container_3 is the MALICIOUS client (Shashwati's attack config).
+  # Toggle ATTACK_TYPE to gaussian_noise / label_flipping; set NOISE_SCALE for gaussian.
   train_container_3:
-    build: .
     image: unifyfl
+    command: sh -c "sleep 25 && python unifyfl/base/client.py /code/configs/async/client.config.json"
     environment:
       - TRAIN_SET=3
       - IS_MALICIOUS=true
       - ATTACK_TYPE=label_flipping
-    mem_limit: 1g
-    restart: no
-    network_mode: "host"
+    restart: "no"
+    privileged: true
     volumes:
-      - ./configs:/code/configs
-      - ./unifyfl:/code/unifyfl
-      - ./models:/code/models
+      - /unifyfl:/code
+    network_mode: host
+    depends_on:
+      - aggregator
+
+  ipfs:
+    image: ipfs/kubo:latest
+    network_mode: host
+    user: "root"
+
+volumes:
+  ipfs_data:
