@@ -14,5 +14,5 @@
     "aggregation_policy": "pick_top_k",
     "scoring_policy": "assign_score_mean",
     "strategy": "fedavg",
-    "experiment_id": "1024becc-677b-47f4-9c51-4198ad1aae4f"
+    "experiment_id": "22ecbb95-64f1-49bb-a441-57ab7104db52"
 }

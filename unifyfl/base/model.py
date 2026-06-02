@@ -55,7 +55,10 @@ def pinn_guard_scorer(model, dataloader: DataLoader, pinn_path: str = None):
     residual = _compute_physics_loss(pinn_guard, all_logits.to(DEVICE)).item()
     
     # 4. Invert score so higher is better
-    score = 1.0 / (1.0 + residual)
+    if np.isnan(residual) or np.isinf(residual):
+        score = 0.0
+    else:
+        score = 1.0 / (1.0 + residual)
     return 0.0, score
 
 

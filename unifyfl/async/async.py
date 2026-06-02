@@ -1,33 +1,22 @@
-"""Async UnifyFL server implementation."""
-
-from collections import OrderedDict
+import asyncio
 import json
+import logging
+import os
+import sys
+import time
+from collections import OrderedDict
+from datetime import datetime
 from operator import itemgetter
 
+from web3 import Web3
+
+from unifyfl.base.contract import create_reg_contract, create_async_contract
+from unifyfl.base.ipfs import load_models, save_model_ipfs
 from unifyfl.base.policies import pick_selected_model
 from flwr.common import parameters_to_ndarrays, ndarrays_to_parameters
-
-from datetime import datetime
-import logging
-import sys
-import asyncio
-import threading
-
-from web3 import Web3
-from time import sleep
-
-# import wandb
-from unifyfl.base.contract import create_reg_contract, create_async_contract
-from unifyfl.base.custom_server import Server
-
-from unifyfl.base.ipfs import load_models, save_model_ipfs
-import flwr as fl
 from flwr.server.strategy.aggregate import aggregate
 from unifyfl.base.model import models
 import torch
-import os
-
-# wandb.login()
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -36,8 +25,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-with open(sys.argv[1]) as f:
-    config = json.load(f)
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+async def main_loop():
+    # 1. Load config
+    config_path = sys.argv[1]
+    with open(config_path) as f:
+        config = json.load(f)
+
     (
         workload,
         geth_endpoint,
@@ -45,15 +40,11 @@ with open(sys.argv[1]) as f:
         registration_contract_address,
         async_contract_address,
         flwr_min_fit_clients,
-        flwr_min_available_clients,
-        flwr_min_evaluate_clients,
-        flwr_server_address,
         ipfs_host,
         aggregation_policy,
         scoring_policy,
         k,
         experiment_id,
-        strategy,
     ) = itemgetter(
         "workload",
         "geth_endpoint",
@@ -61,275 +52,140 @@ with open(sys.argv[1]) as f:
         "registration_contract_address",
         "contract_address",
         "flwr_min_fit_clients",
-        "flwr_min_available_clients",
-        "flwr_min_evaluate_clients",
-        "flwr_server_address",
         "ipfs_host",
         "aggregation_policy",
         "scoring_policy",
         "k",
         "experiment_id",
-        "strategy",
-    )(
-        config
-    )
-num_rounds = config.get("num_rounds", 100)
+    )(config)
 
-model = models[workload]
+    num_rounds = config.get("num_rounds", 100)
+    min_fit_clients = int(flwr_min_fit_clients)
 
+    # 2. Connect to Web3
+    w3 = Web3(Web3.HTTPProvider(geth_endpoint))
+    if os.getenv("GETH_POA"):
+        from web3.middleware import geth_poa_middleware
+        w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+    
+    # Aggregator uses Account 0
+    aggregator_address = w3.eth.accounts[0]
+    w3.eth.default_account = aggregator_address
 
-if strategy == "fedyogi":
-    from unifyfl.base.strategy import FedYogiAggregate
+    # 3. Connect to contracts
+    registration_contract = create_reg_contract(w3, registration_contract_address)
+    async_contract = create_async_contract(w3, async_contract_address)
 
-    initial_model = model()
-
-    aggregator = FedYogiAggregate(
-        initial_parameters=ndarrays_to_parameters(
-            [val.cpu().numpy() for _, val in initial_model.state_dict().items()]
-        )
-    )
-# DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-
-def set_weights(model, parameters):
-    keys = [k for k in model.state_dict().keys() if "bn" not in k]
-    params_dict = zip(keys, parameters)
-    state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
-    model.load_state_dict(state_dict, strict=False)
-
-
-w3 = Web3(Web3.HTTPProvider(geth_endpoint))
-
-# Add this line when changing from anvil to geth chain
-if os.getenv("GETH_POA"):
-    from web3.middleware import geth_poa_middleware
-
-    w3.middleware_onion.inject(geth_poa_middleware, layer=0)
-w3.eth.default_account = geth_account
-
-registration_contract = create_reg_contract(w3, registration_contract_address)
-# TODO: Add registration
-async_contract = create_async_contract(w3, async_contract_address)
-
-
-time_start = str(datetime.now().strftime("%d-%H-%M-%S"))
-os.makedirs(f"save/async/{workload}/{experiment_id}", exist_ok=True)
-
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-
-
-# def evaluate(
-#     server_round: int, parameters: fl.common.NDArrays, config: Dict[str, Scalar]
-# ) -> Optional[Tuple[float, Dict[str, Scalar]]]:
-#     model_instance = model()
-#     set_weights(model, parameters)
-#     model.to(DEVICE)
-#
-#     loss, accuracy = model_instance.test(testloader, device=DEVICE)
-#     print(loss, accuracy)
-#     return loss, {"accuracy": accuracy}
-
-
-class AsyncServer(Server):
-    """Async server implementation.
-    Warning: Server is a subclass of fl.server.Server, setting properties that
-    are common to fl.server.Server might lead to unexpected behaviour.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.round_ongoing = False
-        self.round_id = 0
-        self.cid = None
-        self.model = model()
+    # Register as trainer
+    try:
         registration_contract.functions.registerNode("trainer").transact()
-        self._rounds_thread = threading.Thread(target=self.run_rounds, daemon=False)
-        self._rounds_thread.start()
+        logger.info(f"Aggregator registered as trainer at address {aggregator_address}")
+    except Exception as e:
+        logger.warning(f"Aggregator registration failed/already registered: {e}")
 
-    def run_rounds(self):
-        import asyncio
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-        while True:
-            try:
-                self.single_round()
-            except Exception as e:
-                logger.error(f"Error in single_round: {e}")
-                sleep(5)
+    # 4. Initialize model
+    model_class = models[workload]
+    model_instance = model_class().to(DEVICE)
 
-    def set_parameters(self, parameters):
-        print("set param", len(parameters))
-        params_dict = zip(self.model.state_dict().keys(), parameters)
+    # Helper to set parameters
+    def set_parameters(model, parameters):
+        params_dict = zip(model.state_dict().keys(), parameters)
         state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
-        self.model.load_state_dict(
-            state_dict,
-        )
+        model.load_state_dict(state_dict, strict=True)
 
-    # run_rounds not needed as we can just start another round after previous round ends
-    # def run_rounds(self):
-    #     # Rounds in async start automatically after the previous round ends
-    #     time.sleep(60)
-    #     while True:
-    #         logger.info(f"Round {self.round_id} started")
-    #         self.single_round()
-    #         logger.info(f"Round {self.round_id-1} ended")
-    #         time.sleep(60)
+    # Helper to get parameters as numpy list
+    def get_parameters(model):
+        return [val.cpu().numpy() for _, val in model.state_dict().items()]
 
-    def aggregate_models(self):
-        global_models = list(
-            filter(
-                lambda x: x[0] != "",
-                zip(*async_contract.functions.getLatestModelsWithScores().call()),
-            )
-        )
-        if (len(list(global_models))) == 0:
-            print(f"no global models - {self.round_id}")
-            return
-        selected_models = pick_selected_model(
-            global_models, aggregation_policy, scoring_policy, int(k), self.cid
-        )
+    os.makedirs(f"save/async/{workload}/{experiment_id}", exist_ok=True)
 
-        loop = getattr(self, '_loop', asyncio.get_event_loop())
-        if len(selected_models) > 0:
-            logger.info(f"Aggregating models {selected_models}")
-            state_dicts = loop.run_until_complete(
-                load_models(selected_models, ipfs_host)
-            )
-            param_list = list(
-                map(
-                    ndarrays_to_parameters,
-                    [
+    # 5. Aggregator Loop
+    round_id = 0
+    global_cid = None
+    
+    while round_id <= num_rounds:
+        try:
+            # Round 0: Initialize initial global model
+            if round_id == 0:
+                logger.info("Round 0: Initializing global model...")
+                global_cid = await save_model_ipfs(model_instance.state_dict(), ipfs_host)
+                logger.info(f"Initial global model saved to IPFS with CID: {global_cid}")
+                
+                async_contract.functions.submitModel(global_cid).transact()
+                logger.info("Initial global model CID submitted to contract.")
+                
+                round_id = 1
+                logger.info(f"Round 1 started - waiting for client models...")
+                await asyncio.sleep(5)
+                continue
+
+            # Query contract for latest models and scores
+            models_list, scores_list = async_contract.functions.getLatestModelsWithScores().call()
+            
+            # Map CIDs to scores, filtering out aggregator's own CID and empty models
+            global_models = []
+            for cid, scores in zip(models_list, scores_list):
+                if cid != "" and cid != global_cid:
+                    global_models.append((cid, scores))
+
+            # Count how many of these have at least one score submitted
+            scored_models = [(cid, scores) for cid, scores in global_models if len(scores) > 0]
+            
+            logger.info(f"Round {round_id}: Received {len(global_models)} client updates, {len(scored_models)} are scored (need >= {min_fit_clients})")
+            
+            if len(scored_models) >= min_fit_clients:
+                logger.info(f"Required scores received. Filtering and aggregating...")
+                
+                # Apply selection policy
+                selected_models = pick_selected_model(
+                    scored_models, aggregation_policy, scoring_policy, int(k), global_cid
+                )
+                
+                if len(selected_models) > 0:
+                    logger.info(f"Aggregating models: {selected_models}")
+                    state_dicts = await load_models(selected_models, ipfs_host)
+                    
+                    param_list = [
                         [val.cpu().numpy() for _, val in state_dict.items()]
                         for state_dict in state_dicts
-                    ],
-                )
-            )
-            # for param in param_list:
-            #     print(type(param), "param")
-            models = list(map(parameters_to_ndarrays, param_list))
-            # for model in models:
-            #     print(type(model), "model")
-
-            # TODO: we are giving equal weightage for model aggregation
-            # print(models, "models")
-            models = list(zip(models, [1] * len(models)))
-            # print(models, "models")
-            if strategy == "fedyogi":
-                weight_arrays = aggregate(models)
-                weight_arrays = aggregator.aggregate(weight_arrays)
-            else:
-                weight_arrays = aggregate(models)
-            # print(weight_arrays, "weight arrays")
-
-            self.set_parameters(weight_arrays)
-            self.server.parameters = ndarrays_to_parameters(weight_arrays)
-
-            cur_time = str(datetime.now().strftime("%d-%H-%M-%S"))
-            torch.save(
-                self.model.state_dict(),
-                f"save/async/{workload}/{experiment_id}/{self.round_id:02d}-{cur_time}-global.pt",
-            )
-        else:
-            print(f"not aggregating {self.round_id}")
-
-    def single_round(self):
-        if self.round_id >= num_rounds:
-            logger.info(f"Max rounds reached ({num_rounds}). Waiting for the last round's model ({self.cid}) to be scored...")
-            while True:
-                try:
-                    models, scores = async_contract.functions.getLatestModelsWithScores().call()
-                    found_and_scored = False
-                    for m, s in zip(models, scores):
-                        if m == self.cid and len(s) > 0:
-                            found_and_scored = True
-                            break
-                    if found_and_scored:
-                        logger.info(f"Last round's model {self.cid} has been scored! Exiting aggregator cleanly.")
-                        break
-                except Exception as e:
-                    logger.warning(f"Error checking scores on contract: {e}")
-                sleep(10)
+                    ]
+                    
+                    # Package for aggregator: equal weights for each client update
+                    packaged_models = list(zip(param_list, [1] * len(param_list)))
+                    weight_arrays = aggregate(packaged_models)
+                    
+                    # Load aggregated weights
+                    set_parameters(model_instance, weight_arrays)
+                    
+                    # Save global model to IPFS
+                    global_cid = await save_model_ipfs(model_instance.state_dict(), ipfs_host)
+                    logger.info(f"Global model aggregated. Saved to IPFS with CID: {global_cid}")
+                    
+                    # Submit aggregated CID to contract
+                    async_contract.functions.submitModel(global_cid).transact()
+                    logger.info(f"Submitted new global model CID to contract.")
+                    
+                    cur_time = str(datetime.now().strftime("%d-%H-%M-%S"))
+                    torch.save(
+                        model_instance.state_dict(),
+                        f"save/async/{workload}/{experiment_id}/{round_id:02d}-{cur_time}-global.pt",
+                    )
+                    
+                    round_id += 1
+                    logger.info(f"Round {round_id} started - waiting for client models...")
+                else:
+                    logger.warning("No models selected for aggregation! Retrying in 10s...")
+                    
+            await asyncio.sleep(10)
             
-            # Stop the gRPC server and exit the process
-            self.stop()
-            import sys
-            sys.exit(0)
-        self.round_id += 1
-        self.aggregate_models()
-        self.round_ongoing = True
-        logger.info(f"Round {self.round_id} started")
-        logger.info("Calling start_round")
-        parameters = self.start_round()
-        logger.info("start_round returned")
+        except Exception as e:
+            logger.error(f"Error in aggregator loop: {e}", exc_info=True)
+            await asyncio.sleep(10)
 
-        if parameters is None:
-            print("Error")
-            return
-        parameters = parameters[0]
-        weights = parameters_to_ndarrays(parameters)
-        self.set_parameters(weights)
-        self.round_ongoing = False
-        cur_time = str(datetime.now().strftime("%d-%H-%M-%S"))
-        # TODO: add host to save path
-        torch.save(
-            self.model.state_dict(),
-            f"save/async/{workload}/{experiment_id}/{self.round_id:02d}-{cur_time}-local.pt",
-        )
-
-        loop = getattr(self, '_loop', asyncio.get_event_loop())
-        cid = loop.run_until_complete(save_model_ipfs(self.model.state_dict(), ipfs_host))
-        logger.info(f"Model saved to IPFS with CID: {cid}")
-        self.cid = cid
-        while True:
-            try:
-                async_contract.functions.submitModel(cid).transact()
-                break
-            except Exception as e:
-                print(e)
-                sleep(5)
-                continue
-        logger.info("Model submitted to contarct")
-        logger.info(f"Round {self.round_id} ended")
-        sleep(10)
-        # self.single_round()  # Removed to fix Deep Recursion error
-
-
-# Define strategy
-if strategy == "fedavg":
-    strategy = fl.server.strategy.FedAvg(
-        min_fit_clients=flwr_min_fit_clients,
-        min_available_clients=flwr_min_available_clients,
-        min_evaluate_clients=flwr_min_evaluate_clients,
-    )
-elif strategy == "fedyogi":
-    strategy = fl.server.strategy.FedYogi(
-        initial_parameters=ndarrays_to_parameters(
-            [val.cpu().numpy() for _, val in initial_model.state_dict().items()]
-        ),
-        min_fit_clients=flwr_min_fit_clients,
-        min_available_clients=flwr_min_available_clients,
-        min_evaluate_clients=flwr_min_evaluate_clients,
-    )
-else:  # aggregation_policy == "fedopt"
-    strategy = fl.server.strategy.FedAvg(
-        min_fit_clients=flwr_min_fit_clients,
-        min_available_clients=flwr_min_available_clients,
-        min_evaluate_clients=flwr_min_evaluate_clients,
-    )
-
+    logger.info(f"Max rounds reached ({num_rounds}). Aggregator exiting cleanly.")
 
 def main():
-    """Start server and train model."""
-    server = AsyncServer(server_address=flwr_server_address, strategy=strategy)
-    # Block main thread so the rounds thread can keep running.
-    # run_rounds is non-daemon, so the process won't exit until it finishes.
-    try:
-        server._rounds_thread.join()
-    except KeyboardInterrupt:
-        logger.info("Shutting down server...")
-        server.stop()
-
+    asyncio.run(main_loop())
 
 if __name__ == "__main__":
     main()

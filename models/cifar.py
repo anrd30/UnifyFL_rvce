@@ -60,21 +60,51 @@ class CIFAR10Model(nn.Module):
         x = F.relu(self.fc2(x))
         return self.fc3(x)
 
-    def train_model(self, trainloader, epochs, optimizer=None):
+    def train_model(self, trainloader, epochs, optimizer=None, teacher_model=None, alpha=0.5, temperature=2.0):
         """Train the model on the training set."""
         criterion = nn.CrossEntropyLoss()
         if optimizer is None:
             lr = float(os.environ.get("LR", "0.001"))
             optimizer = torch.optim.SGD(self.parameters(), lr=lr, momentum=0.9)
         
+        kd_alpha = float(os.environ.get("KD_ALPHA", str(alpha)))
+        kd_temp = float(os.environ.get("KD_TEMPERATURE", str(temperature)))
+        poison_scale = float(os.environ.get("POISON_SCALE", "2.0"))
+        is_malicious = os.environ.get("IS_MALICIOUS", "false").lower() == "true"
+        attack_type = os.environ.get("ATTACK_TYPE", "")
+
         self.train()
+        if teacher_model is not None:
+            teacher_model.eval()
+
         for epoch in range(epochs):
             for i, batch in enumerate(tqdm(trainloader, disable=True)): # Disable tqdm for cleaner docker logs
                 images, labels = batch["image"].to(DEVICE).float(), batch["label"].to(
                     DEVICE
                 )
                 optimizer.zero_grad()
-                criterion(self(images), labels).backward()
+                
+                logits = self(images)
+                
+                # Logit poisoning attack before KD loss computation
+                if is_malicious and attack_type == "logit_poisoning":
+                    logits = logits - logits.detach() + torch.randn_like(logits) * poison_scale
+                    
+                loss = criterion(logits, labels)
+                
+                if teacher_model is not None:
+                    with torch.no_grad():
+                        teacher_logits = teacher_model(images)
+                    
+                    kd_loss = F.kl_div(
+                        F.log_softmax(logits / kd_temp, dim=1),
+                        F.softmax(teacher_logits / kd_temp, dim=1),
+                        reduction="batchmean"
+                    ) * (kd_temp * kd_temp)
+                    
+                    loss = (1.0 - kd_alpha) * loss + kd_alpha * kd_loss
+                    
+                loss.backward()
                 optimizer.step()
                 if i % 100 == 0:
                     print(f"Epoch {epoch+1}/{epochs}, Batch {i}/{len(trainloader)}", flush=True)

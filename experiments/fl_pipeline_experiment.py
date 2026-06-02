@@ -56,6 +56,7 @@ class ExperimentConfig:
     k: int  # For pick_top_k
     workload: str  # cifar10, mnist, etc.
     batch_size: int
+    attack_type: str = "gaussian_noise"
 
 
 class ProcessManager:
@@ -214,8 +215,12 @@ class FLExperiment:
         # Create matched party config for clients
         party_config = {
             "workload": self.config.workload,
-            "flwr_server_address": "localhost:5000",
-            "epochs": self.config.epochs_per_round
+            "epochs": self.config.epochs_per_round,
+            "geth_endpoint": "http://localhost:8545",
+            "registration_contract_address": reg_address,
+            "contract_address": contract_address,
+            "ipfs_host": "/ip4/127.0.0.1/tcp/5001",
+            "num_rounds": self.config.num_rounds,
         }
         party_config_path = self.results_dir / "party_config.json"
         with open(party_config_path, 'w') as f:
@@ -248,8 +253,11 @@ class FLExperiment:
         
         if is_malicious:
             env["IS_MALICIOUS"] = "true"
-            env["ATTACK_TYPE"] = "gaussian_noise"
-            env["NOISE_SCALE"] = str(self.config.noise_scale)
+            env["ATTACK_TYPE"] = getattr(self.config, "attack_type", "gaussian_noise")
+            if env["ATTACK_TYPE"] == "logit_poisoning":
+                env["POISON_SCALE"] = str(self.config.noise_scale)
+            else:
+                env["NOISE_SCALE"] = str(self.config.noise_scale)
             log_name = f"client_{client_id}_malicious.log"
         else:
             log_name = f"client_{client_id}_benign.log"
@@ -503,11 +511,13 @@ Examples:
     # Custom config parameters
     parser.add_argument("--num-benign", type=int, default=9, help="Number of benign clients")
     parser.add_argument("--num-malicious", type=int, default=1, help="Number of malicious clients")
-    parser.add_argument("--noise-scale", type=float, default=0.1, help="Gaussian noise scale")
+    parser.add_argument("--noise-scale", type=float, default=0.1, help="Gaussian noise scale or poison scale")
     parser.add_argument("--rounds", type=int, default=10, help="Number of FL rounds")
     parser.add_argument("--epochs", type=int, default=1, help="Epochs per round")
     parser.add_argument("--scoring", choices=["accuracy", "multi_krum", "pinn_guard"], 
                        default="accuracy", help="Scoring policy")
+    parser.add_argument("--attack-type", choices=["gaussian_noise", "logit_poisoning"],
+                       default="gaussian_noise", help="Type of attack to perform")
     
     args = parser.parse_args()
     
@@ -544,6 +554,7 @@ Examples:
             k=5,
             workload="cifar10",
             batch_size=32,
+            attack_type=args.attack_type,
         )
         experiment = FLExperiment(config)
         experiment.run()
