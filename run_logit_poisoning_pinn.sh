@@ -68,8 +68,8 @@ run_experiment() {
     print_header "Running 100-Round Logit Poisoning Experiment with PINN Guard Defense"
     cd "$PROJECT_DIR"
     poetry run python experiments/fl_pipeline_experiment.py --custom \
-        --num-benign 9 \
-        --num-malicious 1 \
+        --num-benign 10 \
+        --num-malicious 2 \
         --noise-scale 2.0 \
         --rounds 100 \
         --epochs 3 \

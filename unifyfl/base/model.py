@@ -54,11 +54,14 @@ def pinn_guard_scorer(model, dataloader: DataLoader, pinn_path: str = None):
     # 3. Compute violation (residual)
     residual = _compute_physics_loss(pinn_guard, all_logits.to(DEVICE)).item()
     
-    # 4. Invert score so higher is better
+    # 4. Penalize trivial flat solutions (low-variance/collapsed logits)
+    logit_std = all_logits.std().item()
+    
+    # 5. Invert score so higher is better, scaled by confidence (logit_std)
     if np.isnan(residual) or np.isinf(residual):
         score = 0.0
     else:
-        score = 1.0 / (1.0 + residual)
+        score = min(1.0, logit_std / (1.0 + residual))
     return 0.0, score
 
 

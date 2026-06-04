@@ -87,8 +87,13 @@ async def score_model(trainer: str, cid: str):
             pinn_dir = f"save/async/{workload}/{experiment_id}"
             pinn_path = f"{pinn_dir}/pinn_guard.pt"
             os.makedirs(pinn_dir, exist_ok=True)
-            if not os.path.exists(pinn_path):
-                logger.info("PINN Guard model checkpoint not found. Training PINN Guard on clean logits first...")
+            
+            is_global_model = (trainer.lower() == w3.eth.accounts[0].lower())
+            if not os.path.exists(pinn_path) or is_global_model:
+                if is_global_model:
+                    logger.info("Aggregator global model detected. Re-training PINN Guard on updated clean global logits...")
+                else:
+                    logger.info("PINN Guard model checkpoint not found. Training PINN Guard on clean logits first...")
                 model_instance.eval()
                 clean_logits = []
                 with torch.no_grad():
@@ -103,7 +108,7 @@ async def score_model(trainer: str, cid: str):
                     clean_logits, n_epochs=100, device=DEVICE, verbose=False
                 )
                 torch.save(pinn_guard_model.state_dict(), pinn_path)
-                logger.info(f"PINN Guard trained and saved to {pinn_path}")
+                logger.info(f"PINN Guard trained/updated and saved to {pinn_path}")
                 
             from unifyfl.base.model import pinn_guard_scorer
             loss, score = pinn_guard_scorer(model_instance, testloader, pinn_path=pinn_path)

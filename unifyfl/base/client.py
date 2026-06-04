@@ -102,14 +102,14 @@ async def main_loop():
             trainers = registration_contract.functions.getTrainers().call()
             models_list, _ = async_contract.functions.getLatestModelsWithScores().call()
             
+            client_addresses = [w3.eth.accounts[i] for i in range(1, 13) if i < len(w3.eth.accounts)]
             global_cid = None
             for t, m in zip(trainers, models_list):
-                if t == aggregator_address:
+                if t not in client_addresses and m != "":
                     global_cid = m
-                    break
             
             if global_cid is None or global_cid == "":
-                logger.info("Waiting for aggregator to publish initial global model...")
+                logger.info("Waiting for any aggregator to publish initial global model...")
                 await asyncio.sleep(5)
                 continue
             

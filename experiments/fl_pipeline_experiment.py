@@ -161,8 +161,8 @@ class FLExperiment:
             "timestamps": [],
         }
     
-    def setup_configs(self):
-        """Create experiment-specific configs"""
+    def setup_configs(self, num_aggregators: int = 3):
+        """Create experiment-specific configs for all aggregators and party config"""
         logger.info("Setting up configuration files...")
         
         # Try to load existing contract addresses from central config
@@ -185,32 +185,50 @@ class FLExperiment:
             except Exception as e:
                 logger.warning(f"Could not read central config: {e}. Using defaults.")
 
-        # Create aggregator config
-        agg_config = {
-            "workload": self.config.workload,
-            "geth_endpoint": "http://localhost:8545",
-            "geth_account": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-            "registration_contract_address": reg_address,
-            "contract_address": contract_address,
-            "flwr_min_fit_clients": self.config.num_benign_clients + self.config.num_malicious_clients,
-            "flwr_min_available_clients": self.config.num_benign_clients + self.config.num_malicious_clients,
-            "flwr_min_evaluate_clients": self.config.num_benign_clients + self.config.num_malicious_clients,
-            "flwr_server_address": "localhost:5000",
-            "ipfs_host": "/ip4/127.0.0.1/tcp/5001",
-            "aggregation_policy": self.config.aggregation_policy,
-            "scoring_policy": "assign_score_mean",
-            "k": self.config.k,
-            "scorer": self.config.scoring_policy,
-            "strategy": strategy,
-            "experiment_id": experiment_id,
-            "num_rounds": self.config.num_rounds,
-        }
+        # Resolve geth accounts dynamically for multiple aggregators using standard Anvil accounts
+        from web3 import Web3
+        w3 = Web3(Web3.HTTPProvider("http://localhost:8545"))
+        accounts = []
+        try:
+            if w3.is_connected():
+                accounts = w3.eth.accounts
+        except Exception as e:
+            logger.warning(f"Could not connect to Web3 to list accounts: {e}")
         
-        agg_config_path = self.results_dir / "agg_config.json"
-        with open(agg_config_path, 'w') as f:
-            json.dump(agg_config, f, indent=2)
-        
-        logger.info(f"Aggregator config saved to {agg_config_path}")
+        agg_config_paths = []
+        for idx in range(num_aggregators):
+            # Accounts: idx=0 -> Account 0, idx=1 -> Account 13, idx=2 -> Account 14
+            if len(accounts) > idx + 12:
+                account_addr = accounts[0] if idx == 0 else accounts[idx + 12]
+            else:
+                account_addr = accounts[0] if len(accounts) > 0 else "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+
+            # Create aggregator config
+            agg_config = {
+                "workload": self.config.workload,
+                "geth_endpoint": "http://localhost:8545",
+                "geth_account": account_addr,
+                "registration_contract_address": reg_address,
+                "contract_address": contract_address,
+                "flwr_min_fit_clients": self.config.num_benign_clients + self.config.num_malicious_clients,
+                "flwr_min_available_clients": self.config.num_benign_clients + self.config.num_malicious_clients,
+                "flwr_min_evaluate_clients": self.config.num_benign_clients + self.config.num_malicious_clients,
+                "flwr_server_address": "localhost:5000",
+                "ipfs_host": "/ip4/127.0.0.1/tcp/5001",
+                "aggregation_policy": self.config.aggregation_policy,
+                "scoring_policy": "assign_score_mean",
+                "k": self.config.k,
+                "scorer": self.config.scoring_policy,
+                "strategy": strategy,
+                "experiment_id": experiment_id,
+                "num_rounds": self.config.num_rounds,
+            }
+            
+            agg_config_path = self.results_dir / f"agg_config_{idx}.json"
+            with open(agg_config_path, 'w') as f:
+                json.dump(agg_config, f, indent=2)
+            agg_config_paths.append(agg_config_path)
+            logger.info(f"Aggregator {idx} config saved to {agg_config_path}")
 
         # Create matched party config for clients
         party_config = {
@@ -227,7 +245,7 @@ class FLExperiment:
             json.dump(party_config, f, indent=2)
         logger.info(f"Party config saved to {party_config_path}")
 
-        return agg_config_path
+        return agg_config_paths
     
     def create_client_configs(self) -> List[Tuple[int, bool]]:
         """Generate client configurations (index, is_malicious)"""
@@ -283,18 +301,20 @@ class FLExperiment:
             json.dump(asdict(self.config), f, indent=2, default=str)
         
         try:
-            # Setup configs
-            agg_config_path = self.setup_configs()
+            # Setup configs for 3 aggregators
+            agg_config_paths = self.setup_configs(num_aggregators=1)
             
-            # Start aggregator
-            agg_command = ["poetry", "run", "async-agg", str(agg_config_path)]
-            agg_log_path = self.results_dir / "aggregator.log"
-            self.process_mgr.start_process("aggregator", agg_command, log_file=str(agg_log_path))
-            
-            # Start scorer
-            scorer_command = ["poetry", "run", "async-scorer", str(agg_config_path)]
-            scorer_log_path = self.results_dir / "scorer.log"
-            self.process_mgr.start_process("scorer", scorer_command, log_file=str(scorer_log_path))
+            # Start multiple aggregators and scorers
+            for idx, agg_config_path in enumerate(agg_config_paths):
+                # Start aggregator
+                agg_command = ["poetry", "run", "async-agg", str(agg_config_path)]
+                agg_log_path = self.results_dir / f"aggregator_{idx}.log"
+                self.process_mgr.start_process(f"aggregator_{idx}", agg_command, log_file=str(agg_log_path))
+                
+                # Start scorer
+                scorer_command = ["poetry", "run", "async-scorer", str(agg_config_path)]
+                scorer_log_path = self.results_dir / f"scorer_{idx}.log"
+                self.process_mgr.start_process(f"scorer_{idx}", scorer_command, log_file=str(scorer_log_path))
             
             # Stagger startup to allow port binding
             time.sleep(5)
@@ -327,16 +347,19 @@ class FLExperiment:
                     logger.info("All clients completed")
                     break
                 
-                # Check if aggregator has exited
-                if not self.process_mgr.is_running("aggregator"):
-                    logger.info("Aggregator completed/exited")
+                # Check if all aggregators have exited
+                active_aggs = sum(1 for name in self.process_mgr.processes 
+                                 if name.startswith("aggregator_") and 
+                                 self.process_mgr.is_running(name))
+                if active_aggs == 0:
+                    logger.info("All aggregators completed/exited")
                     break
                 
                 # Simple heartbeat
                 elapsed = int(time.time() - start_time)
-                logger.info(f"[{elapsed}s] Active clients: {active_clients}/{len(client_configs)}")
+                logger.info(f"[{elapsed}s] Active clients: {active_clients}/{len(client_configs)}, Active Aggs: {active_aggs}")
                 
-                # Log round completion estimate (every heartbeat approximates a round)
+                # Log round completion estimate
                 current_round += 1
                 logger.info(f"Round {current_round} completed (approx.)")
                 

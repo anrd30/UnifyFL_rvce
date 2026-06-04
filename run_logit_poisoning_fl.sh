@@ -44,7 +44,7 @@ start_blockchain() {
         print_warning "Port $BLOCKCHAIN_PORT already in use (blockchain might be running)"
     else
         print_info "Starting Anvil on port $BLOCKCHAIN_PORT..."
-        nohup anvil > "$LOG_DIR/anvil.log" 2>&1 &
+        nohup anvil -a 20 > "$LOG_DIR/anvil.log" 2>&1 &
         sleep 3
     fi
 }
@@ -74,8 +74,8 @@ run_experiment() {
     print_header "Running 100-Round Logit Poisoning Experiment"
     cd "$PROJECT_DIR"
     poetry run python experiments/fl_pipeline_experiment.py --custom \
-        --num-benign 9 \
-        --num-malicious 1 \
+        --num-benign 10 \
+        --num-malicious 2 \
         --noise-scale 2.0 \
         --rounds 100 \
         --epochs 3 \

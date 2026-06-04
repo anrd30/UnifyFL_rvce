@@ -68,8 +68,8 @@ async def main_loop():
         from web3.middleware import geth_poa_middleware
         w3.middleware_onion.inject(geth_poa_middleware, layer=0)
     
-    # Aggregator uses Account 0
-    aggregator_address = w3.eth.accounts[0]
+    # Aggregator uses account defined in config
+    aggregator_address = Web3.to_checksum_address(geth_account)
     w3.eth.default_account = aggregator_address
 
     # 3. Connect to contracts
@@ -120,12 +120,14 @@ async def main_loop():
                 continue
 
             # Query contract for latest models and scores
+            trainers = registration_contract.functions.getTrainers().call()
             models_list, scores_list = async_contract.functions.getLatestModelsWithScores().call()
             
-            # Map CIDs to scores, filtering out aggregator's own CID and empty models
+            # Map CIDs to scores, filtering out other aggregators and only keeping clients
+            client_addresses = [w3.eth.accounts[i] for i in range(1, 13) if i < len(w3.eth.accounts)]
             global_models = []
-            for cid, scores in zip(models_list, scores_list):
-                if cid != "" and cid != global_cid:
+            for t, cid, scores in zip(trainers, models_list, scores_list):
+                if t in client_addresses and cid != "":
                     global_models.append((cid, scores))
 
             # Count how many of these have at least one score submitted
